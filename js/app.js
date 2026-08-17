@@ -111,7 +111,7 @@ function renderHome() {
 
   const next = findNextItem(day);
   $('#nextStopName').textContent = next?.name || '다음 일정 없음';
-  $('#openNextMapBtn').disabled = !next;
+  $('#openNextMapBtn span').textContent = next ? 'Google Maps에서 보기' : `${state.trip.city || '여행지'} 지도 열기`;
   const route = next ? routeForNext(day, next) : null;
   const chips = $$('#nextRouteInfo .route-chip strong');
   chips[0].textContent = route?.driveText || '--'; chips[1].textContent = route?.walkText || '--';
@@ -134,7 +134,7 @@ function todayExpenses(date) { return state.expenses.filter(e => e.date === date
 
 function renderPlan() {
   const tabs = $('#dayTabs');
-  tabs.innerHTML = state.days.map((d,i) => `<button class="day-tab ${d.id === activeDay()?.id ? 'is-active' : ''}" data-day-id="${d.id}" role="tab" type="button">DAY ${i+1}<span class="sr-only"></span> · ${formatDate(d.date)}</button>`).join('');
+  tabs.innerHTML = state.days.map((d,i) => `<button class="day-tab ${d.id === activeDay()?.id ? 'is-active' : ''}" data-day-id="${d.id}" role="tab" type="button"><span>DAY ${i+1}</span><span class="day-tab__date">${formatDate(d.date)}</span></button>`).join('');
   const day = activeDay();
   const list = $('#planList');
   if (!day?.items?.length) {
@@ -192,7 +192,7 @@ function renderExpenses() {
   el.innerHTML = state.expenses.length ? state.expenses.slice().reverse().slice(0,12).map(e => `<div class="simple-row" data-expense-id="${e.id}"><div><h4>${esc(e.title || e.category || '지출')}</h4><small class="muted">${esc(formatDate(e.date))} · ${Number(e.vnd).toLocaleString()} VND</small></div><strong>${money(e.krw)}</strong></div>`).join('') : '<div class="empty-state">환율 계산 후 바로 지출로 기록할 수 있습니다.</div>';
 }
 function renderChecklist() {
-  $('#checklist').innerHTML = state.checklist.map(c => `<div class="check-row" data-check-id="${c.id}"><input type="checkbox" ${c.done?'checked':''} aria-label="${esc(c.title)} 완료"><label class="${c.done?'is-done':''}">${esc(c.title)}</label><button class="icon-btn icon-btn--small" data-action="remove" aria-label="삭제">${icon('x')}</button></div>`).join('');
+  $('#checklist').innerHTML = state.checklist.map(c => `<div class="check-row" data-check-id="${c.id}"><input type="checkbox" ${c.done?'checked':''} aria-label="${esc(c.title)} 완료"><label class="${c.done?'is-done':''}">${esc(c.title)}</label><button class="check-delete-btn" data-action="remove" aria-label="${esc(c.title)} 삭제">${icon('trash-2')}</button></div>`).join('');
 }
 function renderDocuments() {
   $('#documentsList').innerHTML = state.documents.length ? state.documents.map(d => `<div class="simple-row" data-doc-id="${d.id}"><div><h4>${esc(d.title)}</h4><small class="muted">${esc(d.type || '기타')} ${d.date ? `· ${formatDate(d.date)}`:''}</small></div>${d.url ? `<button class="icon-btn icon-btn--small" data-action="open" aria-label="열기">${icon('external-link')}</button>`:''}</div>`).join('') : '<div class="empty-state">항공, 숙소, 보험, eSIM 등의 예약 정보를 한곳에 보관하세요.</div>';
@@ -373,7 +373,7 @@ function openSettings() {
           if (!cfg.deviceToken) {
             const result = await api.createTrip({ name: state.trip.title, city: state.trip.city, country: state.trip.country, startDate: state.trip.startDate, endDate: state.trip.endDate, state }, ownerKey);
             form.elements.ownerKey.value='';
-            setConfig({ deviceToken: result.token, tripId: result.tripId, memberId: result.memberId, role:'OWNER' }); state.trip.id=result.tripId; state.revision=result.revision||0; if (result.members) state.members=result.members; await saveState(state); closeSheet(); renderAll(); toast('OWNER 가족 인증이 연결되었습니다.');
+            setConfig({ deviceToken: result.token, tripId: result.tripId, memberId: result.memberId, role:'OWNER' }); state.trip.id=result.tripId; state.revision=result.revision||0; if (result.members) state.members=result.members; await saveState(state); closeSheet(); renderAll(); toast('OWNER 가족 인증이 연결되었습니다.'); refreshWeather(); refreshExchange();
           } else {
             scheduleSync(); closeSheet(); renderAll(); toast('설정을 저장했습니다.');
           }
@@ -399,10 +399,15 @@ async function refreshExchange() {
   try { const r = await api.exchange(); state.exchange = { rate:r.rate, day:r.day, source:r.source || 'worker' }; scheduleSave({sync:false}); updateCurrency(); toast('오늘 환율을 갱신했습니다.'); }
   catch(err) { toast(`환율 갱신 실패: ${err.message}`); }
 }
-async function refreshWeather() {
+async function refreshWeather({ announce = false } = {}) {
+  const detail=$('#weatherDetail'), button=$('#refreshWeatherBtn');
+  if (!getConfig().deviceToken) { detail.textContent='가족 인증 연결 후 갱신'; if(announce)toast('가족 인증 연결 후 날씨를 갱신할 수 있습니다.'); return; }
+  detail.textContent='날씨 불러오는 중...'; button.disabled=true; button.classList.add('is-loading');
   try {
-    const w = await api.weather(state.trip.lat,state.trip.lng); $('#weatherMain').textContent = `${Math.round(w.current.temperature)}° · ${w.summary}`; $('#weatherDetail').textContent = `강수 ${w.daily.precipitationProbability}% · 바람 ${Math.round(w.current.windSpeed)}km/h`;
-  } catch { $('#weatherDetail').textContent = 'Worker 연결 후 날씨 갱신'; }
+    const w = await api.weather(state.trip.lat,state.trip.lng); const temperature=Number(w.current?.temperature), wind=Number(w.current?.windSpeed); if(!Number.isFinite(temperature)||!Number.isFinite(wind))throw new Error('날씨 응답이 올바르지 않습니다.');
+    $('#weatherMain').textContent = `${Math.round(temperature)}° · ${w.summary}`; detail.textContent = `강수 ${w.daily?.precipitationProbability ?? 0}% · 바람 ${Math.round(wind)}km/h`; if(announce)toast('날씨를 갱신했습니다.');
+  } catch(err) { detail.textContent = `갱신 실패 · ${err.message}`; if(announce)toast(`날씨 갱신 실패: ${err.message}`); }
+  finally { button.disabled=false; button.classList.remove('is-loading'); }
 }
 
 async function refreshRoutes() {
@@ -477,6 +482,7 @@ function addExpenseSheet(vnd) {
 }
 
 function addChecklistSheet() { openSheet('체크리스트 추가','PREP',`<form id="checkForm" class="form-grid"><div class="form-field"><label>항목</label><input name="title" required placeholder="상비약"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">추가</button></div></form>`,()=>{const f=$('#checkForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=e=>{e.preventDefault();state.checklist.push({id:uid('check'),title:new FormData(f).get('title'),done:false});scheduleSave();closeSheet();renderAll();};}); }
+function confirmChecklistRemoval(item) { openSheet('체크리스트 삭제','CONFIRM',`<div class="auth-card">${icon('trash-2')}<div><strong>${esc(item.title)}</strong><p>이 항목을 삭제할까요? 삭제한 항목은 되돌릴 수 없습니다.</p></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="button" class="danger-btn" id="confirmChecklistDelete">삭제</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#confirmChecklistDelete').onclick=()=>{state.checklist=state.checklist.filter(x=>x.id!==item.id);scheduleSave();closeSheet();renderChecklist();createIcons();toast('체크리스트 항목을 삭제했습니다.');};}); }
 function addDocumentSheet() { openSheet('예약 · 문서 추가','BOOKING',`<form id="docForm" class="form-grid"><div class="form-field"><label>제목</label><input name="title" required placeholder="아미아나 리조트"></div><div class="form-grid two"><div class="form-field"><label>종류</label><select name="type"><option>숙소</option><option>항공</option><option>보험</option><option>eSIM</option><option>투어</option><option>기타</option></select></div><div class="form-field"><label>날짜 · 선택</label>${nativeDateInput({ name:'date' })}</div></div><div class="form-field"><label>링크 · 선택</label><input name="url" type="url" placeholder="https://"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">저장</button></div></form>`,()=>{const f=$('#docForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=e=>{e.preventDefault();const fd=new FormData(f);state.documents.push({id:uid('doc'),title:fd.get('title'),type:fd.get('type'),date:fd.get('date'),url:fd.get('url')});scheduleSave();closeSheet();renderAll();};}); }
 
 function bindEvents() {
@@ -484,7 +490,7 @@ function bindEvents() {
   $('#quickSettingsBtn').onclick=openSettings; $('#closeSheetBtn').onclick=closeSheet; $('#sheetBackdrop').onclick=closeSheet;
   $('#modalCancelBtn').onclick=closeModal; $('#modalBackdrop').onclick=closeModal; $('#modalConfirmBtn').onclick=()=>{ const u=pendingExternalUrl; closeModal(); if(u) window.open(u,'_blank','noopener,noreferrer'); };
   $('#addPlanItemBtn').onclick=()=>openPlanEditor(); $('#useLocationBtn').onclick=useCurrentLocation;
-  $('#openNextMapBtn').onclick=()=>{const d=getTodayTripDay(), n=findNextItem(d); if(n) openPlaceMap(n);};
+  $('#openNextMapBtn').onclick=()=>{const d=getTodayTripDay(), n=findNextItem(d); if(n) openPlaceMap(n); else openCityMap();};
   $('#dayTabs').addEventListener('click',e=>{const b=e.target.closest('[data-day-id]');if(!b)return;state.settings.activeDayId=b.dataset.dayId;scheduleSave({sync:false});renderPlan();createIcons();});
   $('#planList').addEventListener('click',e=>{const card=e.target.closest('[data-item-id]');const btn=e.target.closest('[data-action]');if(!card||!btn)return;const day=activeDay(),idx=day.items.findIndex(i=>i.id===card.dataset.itemId),item=day.items[idx];if(btn.dataset.action==='edit')openPlanEditor(item);if(btn.dataset.action==='up'&&idx>0){[day.items[idx-1],day.items[idx]]=[day.items[idx],day.items[idx-1]];scheduleSave();renderPlan();createIcons();}});
   $('#refreshRoutesBtn').onclick=refreshRoutes; $('#recommendRouteBtn').onclick=recommendRoute;
@@ -493,8 +499,8 @@ function bindEvents() {
   $('#favoritesList').addEventListener('click',e=>{const c=e.target.closest('[data-fav-id]'),b=e.target.closest('[data-action]');if(!c||!b)return;const f=state.favorites.find(x=>x.id===c.dataset.favId);if(b.dataset.action==='remove'){state.favorites=state.favorites.filter(x=>x.id!==f.id);scheduleSave();renderSaved();createIcons();}if(b.dataset.action==='add-plan')openPlanEditor(null,{name:f.name,placeId:f.placeId,category:f.category});if(b.dataset.action==='map')openPlaceMap(f);});
   $('#vndInput').addEventListener('input',e=>{const pos=e.target.selectionStart;e.target.value=formatNumberInput(e.target.value);updateCurrency();});
   $('#quickAmounts').addEventListener('click',e=>{const b=e.target.closest('[data-vnd]');if(!b)return;$('#vndInput').value=Number(b.dataset.vnd).toLocaleString();updateCurrency();});
-  $('#refreshRateBtn').onclick=refreshExchange; $('#addExpenseFromCalcBtn').onclick=()=>{const v=Number(rawDigits($('#vndInput').value));if(!v)return toast('베트남 동 금액을 입력하세요.');addExpenseSheet(v);};
-  $('#addChecklistBtn').onclick=addChecklistSheet; $('#checklist').addEventListener('change',e=>{const row=e.target.closest('[data-check-id]');if(!row)return;const c=state.checklist.find(x=>x.id===row.dataset.checkId);c.done=e.target.checked;scheduleSave();renderChecklist();}); $('#checklist').addEventListener('click',e=>{const b=e.target.closest('[data-action="remove"]');if(!b)return;const row=b.closest('[data-check-id]');state.checklist=state.checklist.filter(x=>x.id!==row.dataset.checkId);scheduleSave();renderChecklist();createIcons();});
+  $('#refreshRateBtn').onclick=refreshExchange; $('#refreshWeatherBtn').onclick=()=>refreshWeather({announce:true}); $('#addExpenseFromCalcBtn').onclick=()=>{const v=Number(rawDigits($('#vndInput').value));if(!v)return toast('베트남 동 금액을 입력하세요.');addExpenseSheet(v);};
+  $('#addChecklistBtn').onclick=addChecklistSheet; $('#checklist').addEventListener('change',e=>{const row=e.target.closest('[data-check-id]');if(!row)return;const c=state.checklist.find(x=>x.id===row.dataset.checkId);c.done=e.target.checked;scheduleSave();renderChecklist();}); $('#checklist').addEventListener('click',e=>{const b=e.target.closest('[data-action="remove"]');if(!b)return;const row=b.closest('[data-check-id]');const item=state.checklist.find(x=>x.id===row.dataset.checkId);if(item)confirmChecklistRemoval(item);});
   $('#addDocumentBtn').onclick=addDocumentSheet; $('#documentsList').addEventListener('click',e=>{const b=e.target.closest('[data-action="open"]'),row=e.target.closest('[data-doc-id]');if(!b||!row)return;const d=state.documents.find(x=>x.id===row.dataset.docId);confirmExternal(d.title,d.url);});
   $('#externalTools').addEventListener('click',e=>{const b=e.target.closest('[data-url]');if(b)confirmExternal(b.dataset.name,b.dataset.url);});
   $('#syncNowBtn').onclick=pullSync; $('#inviteMemberBtn').onclick=inviteMember; $('#shareLocationBtn').onclick=shareMyLocation;
@@ -539,6 +545,7 @@ function openPlaceMap(place) {
   const url=place.placeId ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${encodeURIComponent(place.placeId)}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}`;
   confirmExternal('Google Maps',url,'장소 확인을 위해 Google Maps 앱 또는 웹사이트로 이동합니다.');
 }
+function openCityMap() { const query=[state.trip.city,state.trip.country].filter(Boolean).join(', ')||'Nha Trang, Vietnam'; confirmExternal('Google Maps',`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,'등록된 다음 일정이 없어 여행지 지도를 엽니다.'); }
 async function inviteMember() {
   if (getConfig().role!=='OWNER') return toast('OWNER만 가족을 초대할 수 있습니다.');
   try { const r=await api.invite('EDITOR'); openSheet('가족 초대','FAMILY',`<p>아래 링크를 가족에게 보내세요. 링크는 1회 사용 후 만료됩니다.</p><div class="auth-card">${icon('key-round')}<div><strong>인증 토큰은 자동으로 발급됩니다</strong><p>가족이 링크를 열고 이름을 입력하면 해당 기기에만 토큰이 저장됩니다. 토큰을 복사하거나 서로 전달할 필요가 없습니다. 브라우저 데이터를 삭제하거나 기기를 바꾸면 새 초대 링크가 필요합니다.</p></div></div><div class="form-field"><label>초대 링크</label><input id="inviteUrl" readonly value="${esc(r.inviteUrl)}"></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>닫기</button><button id="copyInvite" class="primary-btn">링크 복사</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#copyInvite').onclick=async()=>{await navigator.clipboard.writeText(r.inviteUrl);toast('초대 링크를 복사했습니다.');};}); } catch(err){toast(err.message);} }
@@ -564,7 +571,7 @@ async function handleInviteFromUrl() {
 async function init() {
   state=await loadState(); applyTheme(); bindEvents(); renderAll();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  setTimeout(async()=>{ if(getConfig().deviceToken){ refreshWeather(); refreshExchange(); try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } }, 700);
+  setTimeout(async()=>{ if(getConfig().deviceToken){ refreshWeather(); refreshExchange(); try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } else { $('#weatherDetail').textContent='가족 인증 연결 후 갱신'; } }, 700);
   await handleInviteFromUrl();
 }
 

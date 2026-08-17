@@ -25,7 +25,7 @@ async function googleFetch(env, path, body, fieldMask) {
 
 async function handle(req, env) {
   const url=new URL(req.url), p=url.pathname;
-  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.1.0'});
+  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.2.0'});
 
   if(req.method==='POST'&&p==='/api/trips/create') {
     bodyLimit(req); requireOwnerBootstrap(req,env); const input=await req.json(); const tripId=crypto.randomUUID(), memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const state=input.state||{}; state.trip={...(state.trip||{}),id:tripId}; state.revision=1;
@@ -110,7 +110,7 @@ async function handle(req, env) {
   }
 
   if(req.method==='GET'&&p==='/api/weather') {
-    await auth(req,env); const lat=Number(url.searchParams.get('lat')),lng=Number(url.searchParams.get('lng')); if(!Number.isFinite(lat)||!Number.isFinite(lng)) throw Object.assign(new Error('위치가 필요합니다.'),{status:400}); const w=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,wind_speed_10m,weather_code&daily=precipitation_probability_max&timezone=Asia%2FHo_Chi_Minh&forecast_days=1`).then(r=>r.json()); const code=Number(w.current?.weather_code||0); const summary=code===0?'맑음':code<=3?'구름':code<=67?'비':code<=77?'눈':code<=82?'소나기':'기상 변화'; return json({current:{temperature:w.current?.temperature_2m,windSpeed:w.current?.wind_speed_10m,weatherCode:code},daily:{precipitationProbability:w.daily?.precipitation_probability_max?.[0]??0},summary});
+    await auth(req,env); const lat=Number(url.searchParams.get('lat')),lng=Number(url.searchParams.get('lng')); if(!Number.isFinite(lat)||!Number.isFinite(lng)) throw Object.assign(new Error('위치가 필요합니다.'),{status:400}); const weatherRes=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,wind_speed_10m,weather_code&daily=precipitation_probability_max&timezone=Asia%2FHo_Chi_Minh&forecast_days=1`); const w=await weatherRes.json().catch(()=>({})); const temperature=Number(w.current?.temperature_2m),windSpeed=Number(w.current?.wind_speed_10m); if(!weatherRes.ok||!Number.isFinite(temperature)||!Number.isFinite(windSpeed)) throw Object.assign(new Error('날씨 제공 서버에서 올바른 응답을 받지 못했습니다.'),{status:502}); const code=Number(w.current?.weather_code||0); const summary=code===0?'맑음':code<=3?'구름':code<=67?'비':code<=77?'눈':code<=82?'소나기':'기상 변화'; return json({current:{temperature,windSpeed,weatherCode:code},daily:{precipitationProbability:w.daily?.precipitation_probability_max?.[0]??0},summary});
   }
 
   return json({error:'Not found'},404);

@@ -2,6 +2,7 @@ import { getValue, setValue } from './db.js';
 
 const STATE_KEY = 'travel-state-v1';
 const uid = (prefix = 'id') => `${prefix}_${crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
+const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 
 export function defaultState() {
   const start = new Date();
@@ -38,7 +39,7 @@ export function buildDays(startDate, endDate, existing = []) {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return existing;
   let cursor = new Date(start), i = 1;
   while (cursor <= end && i <= 60) {
-    const date = cursor.toISOString().slice(0,10);
+    const date = localDateKey(cursor);
     const prev = existing.find(d => d.date === date);
     out.push(prev || { id: uid('day'), date, items: [] });
     cursor.setDate(cursor.getDate() + 1); i += 1;
@@ -49,6 +50,12 @@ export function buildDays(startDate, endDate, existing = []) {
 export async function loadState() {
   const saved = await getValue(STATE_KEY).catch(() => null);
   const state = saved || defaultState();
+  const expectedDays = buildDays(state.trip.startDate, state.trip.endDate);
+  if (state.days?.length === expectedDays.length && state.days[0]?.date !== expectedDays[0]?.date) {
+    state.days = expectedDays.map((day, index) => ({ ...state.days[index], date: day.date }));
+  } else {
+    state.days = buildDays(state.trip.startDate, state.trip.endDate, state.days || []);
+  }
   if (!state.settings.activeDayId) state.settings.activeDayId = state.days[0]?.id || null;
   return state;
 }

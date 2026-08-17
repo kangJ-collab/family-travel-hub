@@ -60,7 +60,7 @@
             <div class="route-chip"><i data-lucide="car-front"></i><span>차량 / Grab</span><strong>--</strong></div>
             <div class="route-chip"><i data-lucide="footprints"></i><span>도보</span><strong>--</strong></div>
           </div>
-          <button id="openNextMapBtn" class="primary-btn" type="button" disabled>
+          <button id="openNextMapBtn" class="primary-btn" type="button">
             <i data-lucide="map"></i><span>Google Maps에서 보기</span>
           </button>
         </article>
@@ -68,11 +68,12 @@
         <div class="dashboard-grid">
           <article class="mini-card" id="weatherCard">
             <div class="mini-card__icon"><i data-lucide="cloud-sun"></i></div>
-            <div>
+            <div class="weather-card__copy">
               <p class="eyebrow">WEATHER</p>
               <h3 id="weatherMain">나트랑 날씨</h3>
               <p id="weatherDetail" class="muted">온라인에서 갱신</p>
             </div>
+            <button id="refreshWeatherBtn" class="icon-btn icon-btn--small" type="button" aria-label="날씨 갱신"><i data-lucide="refresh-cw"></i></button>
           </article>
           <article class="mini-card">
             <div class="mini-card__icon"><i data-lucide="wallet-cards"></i></div>
