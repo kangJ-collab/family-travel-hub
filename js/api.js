@@ -31,7 +31,7 @@ async function request(path, options = {}, auth = false) {
 
 export const api = {
   health: () => request('/api/health'),
-  createTrip: (payload) => request('/api/trips/create', { method: 'POST', body: JSON.stringify(payload) }),
+  createTrip: (payload, ownerKey) => request('/api/trips/create', { method: 'POST', headers: { 'X-Owner-Key': ownerKey }, body: JSON.stringify(payload) }),
   joinInvite: (payload) => request('/api/invites/join', { method: 'POST', body: JSON.stringify(payload) }),
   getTrip: () => request('/api/trip', {}, true),
   putTrip: (payload) => request('/api/trip', { method: 'PUT', body: JSON.stringify(payload) }, true),
@@ -41,8 +41,8 @@ export const api = {
   searchPlaces: (query) => request(`/api/places/search?q=${encodeURIComponent(query)}`, {}, true),
   route: (origin, destination, mode) => request('/api/routes', { method: 'POST', body: JSON.stringify({ origin, destination, mode }) }, true),
   optimize: (payload) => request('/api/routes/optimize', { method: 'POST', body: JSON.stringify(payload) }, true),
-  exchange: () => request('/api/exchange'),
-  weather: (lat, lng) => request(`/api/weather?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`),
+  exchange: () => request('/api/exchange', {}, true),
+  weather: (lat, lng) => request(`/api/weather?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`, {}, true),
   shareLocation: (lat, lng) => request('/api/location/share', { method: 'POST', body: JSON.stringify({ lat, lng }) }, true),
   getLocations: () => request('/api/locations', {}, true)
 };

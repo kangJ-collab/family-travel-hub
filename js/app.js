@@ -297,7 +297,8 @@ function openSettings() {
       <div class="form-grid two"><div class="form-field"><label>여행 시작일</label><input type="date" name="startDate" value="${esc(state.trip.startDate)}"></div><div class="form-field"><label>여행 종료일</label><input type="date" name="endDate" value="${esc(state.trip.endDate)}"></div></div>
       <div class="form-grid two"><div class="form-field"><label>테마</label><select name="theme">${[['system','시스템'],['light','라이트'],['dark','다크'],['ivory','아이보리'],['warm-ivory','웜 아이보리']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="form-field"><label>강조 색상</label><select name="accent">${[['blue','Blue'],['green','Green'],['sand','Sand'],['coral','Coral'],['purple','Purple']].map(([v,l])=>`<option value="${v}" ${state.settings.accent===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
       <div class="form-field"><label>Cloudflare Worker URL</label><input name="workerUrl" value="${esc(cfg.workerUrl || '')}" placeholder="https://travel-api.example.workers.dev"></div>
-      <p class="helper-text">Google Places/Routes API 키는 프런트엔드가 아닌 Worker Secret에 저장합니다.</p>
+      ${cfg.deviceToken ? '' : '<div class="form-field"><label>OWNER 설정키</label><input type="password" name="ownerKey" minlength="16" autocomplete="off" placeholder="처음 가족 여행을 만들 때만 입력"><p class="helper-text">가족 공유 여행을 처음 만들 때만 사용합니다. 가족 초대 링크에는 포함되지 않습니다.</p></div>'}
+      <p class="helper-text">Google Places/Routes API 키와 OWNER 설정키는 프런트엔드 소스에 저장하지 않습니다.</p>
       <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button class="primary-btn" type="submit">적용</button></div>
       <button id="connectTripBtn" class="secondary-btn" type="button">${cfg.deviceToken ? '가족 여행 연결됨' : '이 여행을 가족 공유로 만들기'}</button>
     </form>`, () => {
@@ -313,8 +314,10 @@ function openSettings() {
       $('#connectTripBtn').onclick = async () => {
         if (getConfig().deviceToken) return toast('이미 가족 공유 여행에 연결되어 있습니다.');
         const workerUrl = form.elements.workerUrl.value.trim(); if (!workerUrl) return toast('먼저 Worker URL을 입력하세요.'); setConfig({ workerUrl });
+        const ownerKey = form.elements.ownerKey?.value.trim(); if (!ownerKey) return toast('OWNER 설정키를 입력하세요.');
         try {
-          const result = await api.createTrip({ name: state.trip.title, city: state.trip.city, country: state.trip.country, startDate: state.trip.startDate, endDate: state.trip.endDate, state });
+          const result = await api.createTrip({ name: state.trip.title, city: state.trip.city, country: state.trip.country, startDate: state.trip.startDate, endDate: state.trip.endDate, state }, ownerKey);
+          form.elements.ownerKey.value='';
           setConfig({ deviceToken: result.token, tripId: result.tripId, memberId: result.memberId, role:'OWNER' }); state.trip.id=result.tripId; state.revision=result.revision||0; if (result.members) state.members=result.members; await saveState(state); closeSheet(); renderAll(); toast('가족 공유 여행을 만들었습니다.');
         } catch(err) { toast(err.message); }
       };
@@ -466,7 +469,7 @@ async function handleInviteFromUrl() {
 async function init() {
   state=await loadState(); applyTheme(); bindEvents(); renderAll();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  setTimeout(async()=>{ refreshWeather(); if(isWorkerConfigured()) { refreshExchange(); if(getConfig().deviceToken){ try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } } }, 700);
+  setTimeout(async()=>{ if(isWorkerConfigured()&&getConfig().deviceToken){ refreshWeather(); refreshExchange(); try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } }, 700);
   await handleInviteFromUrl();
 }
 

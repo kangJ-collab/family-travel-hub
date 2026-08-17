@@ -64,6 +64,7 @@ npx wrangler d1 create family-travel-hub
 # 출력된 database_id를 wrangler.toml에 반영
 npx wrangler d1 execute family-travel-hub --remote --file=./schema.sql
 npx wrangler secret put GOOGLE_MAPS_API_KEY
+npx wrangler secret put OWNER_BOOTSTRAP_KEY
 npx wrangler deploy
 ```
 
@@ -85,8 +86,10 @@ Google Cloud에서는 Places API (New)와 Routes API만 키에 허용하는 것�
 ## API 키 보안
 
 - Google API 키는 `wrangler secret put GOOGLE_MAPS_API_KEY`로만 보관합니다.
+- 가족 공유 여행 생성은 `OWNER_BOOTSTRAP_KEY` Worker Secret을 아는 OWNER만 할 수 있습니다. 설정키는 생성 요청에만 사용하고 브라우저 저장소에는 보관하지 않습니다.
 - 프런트엔드 소스에는 Google API 키가 없습니다.
-- Google Places/Routes 프록시는 가족 기기 토큰을 요구합니다.
+- Google Places/Routes, 환율, 날씨 API는 초대받은 가족 기기 토큰을 요구합니다.
+- Google Places/Routes 호출은 가족 구성원별 분당 60회로 제한합니다.
 - `APP_ORIGIN`으로 허용할 GitHub Pages Origin을 제한합니다.
 - Google Cloud 콘솔에서도 API 제한과 예산/쿼터 제한을 추가하세요.
 

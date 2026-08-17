@@ -13,5 +13,14 @@ binding = "DB"
 database_name = "family-travel-hub"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
-# Google API 키는 여기에 적지 않습니다.
+[[ratelimits]]
+name = "GOOGLE_API_RATE_LIMITER"
+namespace_id = "26081701"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+# 비밀값은 여기에 적지 않습니다.
 # wrangler secret put GOOGLE_MAPS_API_KEY
+# wrangler secret put OWNER_BOOTSTRAP_KEY

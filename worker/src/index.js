@@ -2,8 +2,10 @@ const json = (data, status = 200, extra = {}) => new Response(JSON.stringify(dat
 const nowIso = () => new Date().toISOString();
 const rand = (bytes=24) => { const a=new Uint8Array(bytes); crypto.getRandomValues(a); return btoa(String.fromCharCode(...a)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
 async function sha256(v) { const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
-function cors(req, env) { const origin=req.headers.get('Origin')||''; const allowed=(env.APP_ORIGIN||'').split(',').map(s=>s.trim()).filter(Boolean); const value=allowed.includes(origin)?origin:(allowed[0]||'*'); return {'Access-Control-Allow-Origin':value,'Vary':'Origin','Access-Control-Allow-Headers':'content-type,authorization','Access-Control-Allow-Methods':'GET,POST,PUT,PATCH,DELETE,OPTIONS'}; }
+function cors(req, env) { const origin=req.headers.get('Origin')||''; const allowed=(env.APP_ORIGIN||'').split(',').map(s=>s.trim()).filter(Boolean); const value=allowed.includes(origin)?origin:(allowed[0]||'*'); return {'Access-Control-Allow-Origin':value,'Vary':'Origin','Access-Control-Allow-Headers':'content-type,authorization,x-owner-key','Access-Control-Allow-Methods':'GET,POST,PUT,PATCH,DELETE,OPTIONS'}; }
 function bodyLimit(req, max=600000){const len=Number(req.headers.get('content-length')||0);if(len>max)throw Object.assign(new Error('요청 데이터가 너무 큽니다.'),{status:413});}
+function safeTextEqual(leftValue,rightValue){const enc=new TextEncoder(),left=enc.encode(String(leftValue||'')),right=enc.encode(String(rightValue||''));return left.byteLength===right.byteLength&&crypto.subtle.timingSafeEqual(left,right);}
+function requireOwnerBootstrap(req,env){if(!env.OWNER_BOOTSTRAP_KEY)throw Object.assign(new Error('OWNER_BOOTSTRAP_KEY Worker Secret이 설정되지 않았습니다.'),{status:503});if(!safeTextEqual(req.headers.get('X-Owner-Key'),env.OWNER_BOOTSTRAP_KEY))throw Object.assign(new Error('OWNER 설정키가 올바르지 않습니다.'),{status:403});}
 
 async function auth(req, env) {
   const token=(req.headers.get('Authorization')||'').replace(/^Bearer\s+/i,'').trim(); if(!token) throw Object.assign(new Error('가족 여행 연결이 필요합니다.'),{status:401});
@@ -12,6 +14,7 @@ async function auth(req, env) {
   if(!row) throw Object.assign(new Error('인증 정보가 유효하지 않습니다.'),{status:401}); return row;
 }
 function canEdit(role){return role==='OWNER'||role==='EDITOR';}
+async function limitGoogle(me,env){if(!env.GOOGLE_API_RATE_LIMITER)throw Object.assign(new Error('Google API 사용량 제한이 설정되지 않았습니다.'),{status:503});const {success}=await env.GOOGLE_API_RATE_LIMITER.limit({key:`member:${me.member_id}`});if(!success)throw Object.assign(new Error('Google API 요청이 너무 많습니다. 잠시 후 다시 시도하세요.'),{status:429});}
 function routeWaypoint(input){ if(input?.placeId) return {placeId:input.placeId}; if(Number.isFinite(input?.lat)&&Number.isFinite(input?.lng)) return {location:{latLng:{latitude:input.lat,longitude:input.lng}}}; throw Object.assign(new Error('유효한 위치가 필요합니다.'),{status:400}); }
 
 async function googleFetch(env, path, body, fieldMask) {
@@ -22,10 +25,10 @@ async function googleFetch(env, path, body, fieldMask) {
 
 async function handle(req, env) {
   const url=new URL(req.url), p=url.pathname;
-  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.0.0'});
+  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.1.0'});
 
   if(req.method==='POST'&&p==='/api/trips/create') {
-    bodyLimit(req); const input=await req.json(); const tripId=crypto.randomUUID(), memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const state=input.state||{}; state.trip={...(state.trip||{}),id:tripId}; state.revision=1;
+    bodyLimit(req); requireOwnerBootstrap(req,env); const input=await req.json(); const tripId=crypto.randomUUID(), memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const state=input.state||{}; state.trip={...(state.trip||{}),id:tripId}; state.revision=1;
     await env.DB.batch([
       env.DB.prepare('INSERT INTO trips(id,name,city,country,start_date,end_date,state_json,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(tripId,input.name||'가족여행',input.city||'',input.country||'',input.startDate||'',input.endDate||'',JSON.stringify(state),1,nowIso(),nowIso()),
       env.DB.prepare('INSERT INTO members(id,trip_id,name,role,created_at) VALUES(?,?,?,?,?)').bind(memberId,tripId,'제작자','OWNER',nowIso()),
@@ -68,18 +71,18 @@ async function handle(req, env) {
   if(memberMatch&&req.method==='PATCH') { const me=await auth(req,env); if(me.role!=='OWNER') throw Object.assign(new Error('OWNER만 권한을 변경할 수 있습니다.'),{status:403}); const {role}=await req.json(); if(!['EDITOR','VIEWER'].includes(role)) throw Object.assign(new Error('허용되지 않은 권한입니다.'),{status:400}); const target=await env.DB.prepare('SELECT role FROM members WHERE id=? AND trip_id=?').bind(memberMatch[1],me.trip_id).first(); if(!target||target.role==='OWNER') throw Object.assign(new Error('OWNER 권한은 변경할 수 없습니다.'),{status:400}); await env.DB.prepare('UPDATE members SET role=? WHERE id=? AND trip_id=?').bind(role,memberMatch[1],me.trip_id).run(); return json({ok:true}); }
 
   if(req.method==='GET'&&p==='/api/places/search') {
-    await auth(req,env); if(!env.GOOGLE_MAPS_API_KEY) throw Object.assign(new Error('GOOGLE_MAPS_API_KEY Worker Secret이 설정되지 않았습니다.'),{status:503}); const q=(url.searchParams.get('q')||'').trim(); if(!q) return json({places:[]});
+    const me=await auth(req,env); await limitGoogle(me,env); if(!env.GOOGLE_MAPS_API_KEY) throw Object.assign(new Error('GOOGLE_MAPS_API_KEY Worker Secret이 설정되지 않았습니다.'),{status:503}); const q=(url.searchParams.get('q')||'').trim(); if(!q) return json({places:[]});
     const res=await fetch('https://places.googleapis.com/v1/places:searchText',{method:'POST',headers:{'content-type':'application/json','X-Goog-Api-Key':env.GOOGLE_MAPS_API_KEY,'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress'},body:JSON.stringify({textQuery:q,languageCode:'ko',regionCode:'VN',locationBias:{circle:{center:{latitude:12.2388,longitude:109.1967},radius:50000}}})}); const data=await res.json(); if(!res.ok) throw Object.assign(new Error(data?.error?.message||'Google Places 검색 실패'),{status:502});
     return json({places:(data.places||[]).slice(0,12).map(x=>({id:x.id,name:x.displayName?.text||'',address:x.formattedAddress||''}))});
   }
 
   if(req.method==='POST'&&p==='/api/routes') {
-    await auth(req,env); const {origin,destination,mode='DRIVE'}=await req.json(); if(!['DRIVE','WALK'].includes(mode)) throw Object.assign(new Error('지원하지 않는 이동수단입니다.'),{status:400});
+    const me=await auth(req,env); await limitGoogle(me,env); const {origin,destination,mode='DRIVE'}=await req.json(); if(!['DRIVE','WALK'].includes(mode)) throw Object.assign(new Error('지원하지 않는 이동수단입니다.'),{status:400});
     const routeBody={origin:routeWaypoint(origin),destination:routeWaypoint(destination),travelMode:mode,languageCode:'ko-KR',units:'METRIC'}; if(mode==='DRIVE') routeBody.routingPreference='TRAFFIC_AWARE'; const data=await googleFetch(env,'directions/v2:computeRoutes',routeBody,'routes.duration,routes.distanceMeters'); const r=data.routes?.[0]; return json({durationSeconds:parseFloat(String(r?.duration||'0').replace('s','')),distanceMeters:r?.distanceMeters||0,warning:mode==='WALK'?'도보 경로는 베타 기능으로 실제 보행로와 다를 수 있습니다.':null});
   }
 
   if(req.method==='POST'&&p==='/api/routes/optimize') {
-    await auth(req,env); const {items=[]}=await req.json();
+    const me=await auth(req,env); await limitGoogle(me,env); const {items=[]}=await req.json();
     if(!Array.isArray(items)||items.some(item=>!item?.id||!item?.placeId)) throw Object.assign(new Error('최적화할 장소 정보가 올바르지 않습니다.'),{status:400});
     if(items.length<3) return json({order:items.map(i=>i.id)});
     // 잠긴 장소를 경계로 구간을 나눈다. 각 구간의 시작/끝은 고정하고 중간 항목만 Google Routes가 최적화한다.
@@ -102,12 +105,12 @@ async function handle(req, env) {
   }
 
   if(req.method==='GET'&&p==='/api/exchange') {
-    const day=new Date(Date.now()+7*60*60*1000).toISOString().slice(0,10); const cached=await env.DB.prepare('SELECT rate,source FROM daily_rates WHERE day=? AND pair=?').bind(day,'VNDKRW').first(); if(cached) return json({day,rate:cached.rate,source:cached.source});
+    await auth(req,env); const day=new Date(Date.now()+7*60*60*1000).toISOString().slice(0,10); const cached=await env.DB.prepare('SELECT rate,source FROM daily_rates WHERE day=? AND pair=?').bind(day,'VNDKRW').first(); if(cached) return json({day,rate:cached.rate,source:cached.source});
     const res=await fetch('https://open.er-api.com/v6/latest/VND'); const data=await res.json(); const rate=Number(data?.rates?.KRW); if(!res.ok||!rate) throw Object.assign(new Error('환율 정보를 가져오지 못했습니다.'),{status:502}); await env.DB.prepare('INSERT OR REPLACE INTO daily_rates(day,pair,rate,source,fetched_at) VALUES(?,?,?,?,?)').bind(day,'VNDKRW',rate,'open.er-api.com',nowIso()).run(); return json({day,rate,source:'open.er-api.com'});
   }
 
   if(req.method==='GET'&&p==='/api/weather') {
-    const lat=Number(url.searchParams.get('lat')),lng=Number(url.searchParams.get('lng')); if(!Number.isFinite(lat)||!Number.isFinite(lng)) throw Object.assign(new Error('위치가 필요합니다.'),{status:400}); const w=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,wind_speed_10m,weather_code&daily=precipitation_probability_max&timezone=Asia%2FHo_Chi_Minh&forecast_days=1`).then(r=>r.json()); const code=Number(w.current?.weather_code||0); const summary=code===0?'맑음':code<=3?'구름':code<=67?'비':code<=77?'눈':code<=82?'소나기':'기상 변화'; return json({current:{temperature:w.current?.temperature_2m,windSpeed:w.current?.wind_speed_10m,weatherCode:code},daily:{precipitationProbability:w.daily?.precipitation_probability_max?.[0]??0},summary});
+    await auth(req,env); const lat=Number(url.searchParams.get('lat')),lng=Number(url.searchParams.get('lng')); if(!Number.isFinite(lat)||!Number.isFinite(lng)) throw Object.assign(new Error('위치가 필요합니다.'),{status:400}); const w=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,wind_speed_10m,weather_code&daily=precipitation_probability_max&timezone=Asia%2FHo_Chi_Minh&forecast_days=1`).then(r=>r.json()); const code=Number(w.current?.weather_code||0); const summary=code===0?'맑음':code<=3?'구름':code<=67?'비':code<=77?'눈':code<=82?'소나기':'기상 변화'; return json({current:{temperature:w.current?.temperature_2m,windSpeed:w.current?.wind_speed_10m,weatherCode:code},daily:{precipitationProbability:w.daily?.precipitation_probability_max?.[0]??0},summary});
   }
 
   return json({error:'Not found'},404);
