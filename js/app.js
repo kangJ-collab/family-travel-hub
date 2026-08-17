@@ -31,6 +31,16 @@ function toast(message) {
   $('#toastRegion').appendChild(el);
   setTimeout(() => el.remove(), 3000);
 }
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const input=document.createElement('textarea'); input.value=text; input.setAttribute('readonly',''); input.style.position='fixed'; input.style.opacity='0'; document.body.appendChild(input); input.select(); document.execCommand('copy'); input.remove();
+  }
+}
+function formatJoinCode(value) {
+  const raw=String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
+  return raw.length>4 ? `${raw.slice(0,4)}-${raw.slice(4)}` : raw;
+}
 
 function scheduleSave({ sync = true } = {}) {
   clearTimeout(saveTimer);
@@ -245,6 +255,8 @@ function renderMembers() {
     const actions = `${canRename ? `<button class="secondary-btn" data-action="name">${icon('pencil')}이름</button>` : ''}${canChangeRole ? `<button class="secondary-btn" data-action="role">권한 변경</button>` : ''}`;
     return `<div class="simple-row" data-member-id="${esc(m.id)}"><div><h4>${esc(m.name)}</h4><small class="muted">${esc(m.role)}</small></div>${actions ? `<div class="member-actions">${actions}</div>` : ''}</div>`;
   }).join('');
+  $('#inviteMemberBtn').hidden = cfg.role !== 'OWNER';
+  $('#joinFamilyBtn').hidden = Boolean(cfg.deviceToken);
 }
 function renderFamilyLocations() {
   const el = $('#familyLocations');
@@ -535,7 +547,7 @@ function bindEvents() {
   $('#addChecklistBtn').onclick=addChecklistSheet; $('#checklist').addEventListener('change',e=>{const row=e.target.closest('[data-check-id]');if(!row)return;const c=state.checklist.find(x=>x.id===row.dataset.checkId);c.done=e.target.checked;scheduleSave();renderChecklist();}); $('#checklist').addEventListener('click',e=>{const b=e.target.closest('[data-action="remove"]');if(!b)return;const row=b.closest('[data-check-id]');const item=state.checklist.find(x=>x.id===row.dataset.checkId);if(item)confirmChecklistRemoval(item);});
   $('#addDocumentBtn').onclick=addDocumentSheet; $('#documentsList').addEventListener('click',e=>{const b=e.target.closest('[data-action="open"]'),row=e.target.closest('[data-doc-id]');if(!b||!row)return;const d=state.documents.find(x=>x.id===row.dataset.docId);confirmExternal(d.title,d.url);});
   $('#externalTools').addEventListener('click',e=>{const b=e.target.closest('[data-url]');if(b)confirmExternal(b.dataset.name,b.dataset.url);});
-  $('#syncNowBtn').onclick=pullSync; $('#inviteMemberBtn').onclick=inviteMember; $('#shareLocationBtn').onclick=shareMyLocation;
+  $('#syncNowBtn').onclick=pullSync; $('#inviteMemberBtn').onclick=inviteMember; $('#joinFamilyBtn').onclick=joinFamilyByCode; $('#shareLocationBtn').onclick=shareMyLocation;
   $('#familyLocations').addEventListener('click',e=>{const row=e.target.closest('[data-lat]'),b=e.target.closest('[data-action="location-map"]');if(!row||!b)return;const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.dataset.lat+','+row.dataset.lng)}`;confirmExternal('Google Maps',url,'가족이 공유한 위치를 Google Maps에서 확인합니다.');});
   $('#membersList').addEventListener('click',e=>{const row=e.target.closest('[data-member-id]'),b=e.target.closest('[data-action]');if(!row||!b)return;if(b.dataset.action==='role')changeRole(row.dataset.memberId);if(b.dataset.action==='name')changeMemberName(row.dataset.memberId);});
 
@@ -580,7 +592,30 @@ function openPlaceMap(place) {
 function openCityMap() { const query=[state.trip.city,state.trip.country].filter(Boolean).join(', ')||'Nha Trang, Vietnam'; confirmExternal('Google Maps',`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,'등록된 다음 일정이 없어 여행지 지도를 엽니다.'); }
 async function inviteMember() {
   if (getConfig().role!=='OWNER') return toast('OWNER만 가족을 초대할 수 있습니다.');
-  try { const r=await api.invite('EDITOR'); openSheet('가족 초대','FAMILY',`<p>아래 링크를 가족에게 보내세요. 링크는 1회 사용 후 만료됩니다.</p><div class="auth-card">${icon('key-round')}<div><strong>인증 토큰은 자동으로 발급됩니다</strong><p>가족이 링크를 열고 이름을 입력하면 해당 기기에만 토큰이 저장됩니다. 토큰을 복사하거나 서로 전달할 필요가 없습니다. 브라우저 데이터를 삭제하거나 기기를 바꾸면 새 초대 링크가 필요합니다.</p></div></div><div class="form-field"><label>초대 링크</label><input id="inviteUrl" readonly value="${esc(r.inviteUrl)}"></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>닫기</button><button id="copyInvite" class="primary-btn">링크 복사</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#copyInvite').onclick=async()=>{await navigator.clipboard.writeText(r.inviteUrl);toast('초대 링크를 복사했습니다.');};}); } catch(err){toast(err.message);} }
+  try {
+    const r=await api.invite('EDITOR');
+    openSheet('일회용 참여 코드','FAMILY',`<p>가족에게 아래 코드만 알려주세요. 코드는 10분 동안 한 번만 사용할 수 있습니다.</p><div class="join-code" aria-label="일회용 참여 코드">${esc(r.inviteCode)}</div><div class="auth-card">${icon('shield-check')}<div><strong>링크를 눌러 참여하지 않습니다</strong><p>가족이 원하는 Safari 또는 Chrome에서 앱을 직접 연 뒤 도구 → 가족·권한 → 참여 코드 입력으로 연결합니다. 카카오톡이 앱 주소를 먼저 열어도 코드는 소모되지 않습니다.</p></div></div><div class="form-field"><label>앱 주소</label><input id="inviteAppUrl" readonly value="${esc(r.appUrl)}"></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>닫기</button><button id="copyInviteCode" class="primary-btn">코드 복사</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#copyInviteCode').onclick=async()=>{await copyText(r.inviteCode);toast('참여 코드를 복사했습니다.');};});
+  } catch(err){toast(err.message);}
+}
+function joinFamilyByCode() {
+  if (getConfig().deviceToken) return toast('이 브라우저는 이미 가족여행에 연결되어 있습니다.');
+  openSheet('참여 코드 입력','FAMILY',`<form id="joinCodeForm" class="form-grid"><p>OWNER에게 받은 일회용 코드와 이 기기에서 사용할 이름을 입력하세요.</p><div class="form-field"><label for="joinCode">일회용 참여 코드</label><input id="joinCode" class="join-code-input" name="code" inputmode="text" maxlength="9" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH" required></div><div class="form-field"><label for="joinName">가족 이름</label><input id="joinName" name="name" maxlength="40" autocomplete="name" placeholder="엄마" required></div><p id="joinCodeError" class="form-error" role="alert"></p><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">가족여행 연결</button></div></form>`,()=>{
+    const form=$('#joinCodeForm'), codeInput=$('#joinCode'), error=$('#joinCodeError');
+    $('[data-sheet-cancel]').onclick=closeSheet;
+    codeInput.addEventListener('input',()=>{codeInput.value=formatJoinCode(codeInput.value);error.textContent='';});
+    form.onsubmit=async e=>{
+      e.preventDefault(); error.textContent='';
+      const data=new FormData(form), code=formatJoinCode(data.get('code')), name=String(data.get('name')||'').trim();
+      if(!/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/.test(code)){error.textContent='참여 코드 8자리를 확인하세요.';return;}
+      try {
+        const r=await api.joinInvite({code,name});
+        setConfig({deviceToken:r.token,tripId:r.tripId,memberId:r.memberId,role:r.role});
+        state=normalizeState(r.state); state.revision=r.revision; if(r.members)state.members=r.members;
+        await saveState(state); closeSheet(); renderAll(); toast('가족여행에 연결했습니다.');
+      } catch(err){error.textContent=err.message;}
+    };
+  });
+}
 function changeRole(memberId) { openSheet('가족 권한 변경','PERMISSION',`<div class="form-field"><label>권한</label><select id="roleSelect"><option value="EDITOR">EDITOR · 일정 편집 가능</option><option value="VIEWER">VIEWER · 보기만 가능</option></select></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn" id="saveRole">적용</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#saveRole').onclick=async()=>{try{await api.setRole(memberId,$('#roleSelect').value);closeSheet();await pullSync();}catch(err){toast(err.message);}};}); }
 function changeMemberName(memberId) {
   const member=state.members.find(item=>item.id===memberId); if(!member)return;
@@ -599,9 +634,10 @@ async function shareMyLocation() {
 }
 
 async function handleInviteFromUrl() {
-  const code=new URL(location.href).searchParams.get('invite'); if(!code)return;
-  history.replaceState({},'',location.pathname);
-  openSheet('가족여행 참여','INVITE',`<form id="joinForm" class="form-grid"><p>가족이 공유한 여행에 참여합니다. 별도 회원가입은 없습니다.</p><div class="form-field"><label>이 기기에서 사용할 이름</label><input name="name" required placeholder="엄마"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">참여하기</button></div></form>`,()=>{const f=$('#joinForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=async e=>{e.preventDefault();try{const r=await api.joinInvite({code,name:new FormData(f).get('name')});setConfig({deviceToken:r.token,tripId:r.tripId,memberId:r.memberId,role:r.role});state=normalizeState(r.state);state.revision=r.revision;if(r.members)state.members=r.members;await saveState(state);closeSheet();renderAll();toast('가족여행에 참여했습니다.');}catch(err){toast(err.message);}};});
+  const inviteUrl=new URL(location.href), code=inviteUrl.searchParams.get('invite'); if(!code)return;
+  inviteUrl.searchParams.delete('invite');
+  history.replaceState({},'',`${inviteUrl.pathname}${inviteUrl.search}${inviteUrl.hash}`);
+  openSheet('초대 방식이 변경됐습니다','FAMILY',`<div class="auth-card">${icon('key-round')}<div><strong>초대 링크는 더 이상 사용하지 않습니다</strong><p>링크가 열린 브라우저 때문에 인증이 엉키지 않도록 일회용 참여 코드 방식으로 변경했습니다. OWNER에게 새 코드를 받은 뒤 이 앱의 참여 코드 입력을 이용하세요.</p></div></div><div class="sheet-actions"><button type="button" class="primary-btn" data-sheet-cancel>확인</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;});
 }
 
 async function init() {

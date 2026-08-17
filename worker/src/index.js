@@ -1,6 +1,8 @@
 const json = (data, status = 200, extra = {}) => new Response(JSON.stringify(data), { status, headers: { 'content-type':'application/json; charset=utf-8', ...extra } });
 const nowIso = () => new Date().toISOString();
 const rand = (bytes=24) => { const a=new Uint8Array(bytes); crypto.getRandomValues(a); return btoa(String.fromCharCode(...a)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
+const inviteCode = () => { const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789', bytes=new Uint8Array(8); crypto.getRandomValues(bytes); const raw=[...bytes].map(value=>chars[value&31]).join(''); return `${raw.slice(0,4)}-${raw.slice(4)}`; };
+const normalizeInviteCode = value => String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
 async function sha256(v) { const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)); return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
 function cors(req, env) { const origin=req.headers.get('Origin')||''; const allowed=(env.APP_ORIGIN||'').split(',').map(s=>s.trim()).filter(Boolean); const value=allowed.includes(origin)?origin:(allowed[0]||'*'); return {'Access-Control-Allow-Origin':value,'Vary':'Origin','Access-Control-Allow-Headers':'content-type,authorization,x-owner-key','Access-Control-Allow-Methods':'GET,POST,PUT,PATCH,DELETE,OPTIONS'}; }
 function bodyLimit(req, max=600000){const len=Number(req.headers.get('content-length')||0);if(len>max)throw Object.assign(new Error('요청 데이터가 너무 큽니다.'),{status:413});}
@@ -14,6 +16,7 @@ async function auth(req, env) {
   if(!row) throw Object.assign(new Error('인증 정보가 유효하지 않습니다.'),{status:401}); return row;
 }
 function canEdit(role){return role==='OWNER'||role==='EDITOR';}
+async function limitInviteJoin(req,env){if(!env.GOOGLE_API_RATE_LIMITER)return;const key=req.headers.get('CF-Connecting-IP')||'local';const {success}=await env.GOOGLE_API_RATE_LIMITER.limit({key:`invite:${key}`});if(!success)throw Object.assign(new Error('참여 코드 입력이 너무 많습니다. 잠시 후 다시 시도하세요.'),{status:429});}
 async function limitGoogle(me,env){if(!env.GOOGLE_API_RATE_LIMITER)throw Object.assign(new Error('Google API 사용량 제한이 설정되지 않았습니다.'),{status:503});const {success}=await env.GOOGLE_API_RATE_LIMITER.limit({key:`member:${me.member_id}`});if(!success)throw Object.assign(new Error('Google API 요청이 너무 많습니다. 잠시 후 다시 시도하세요.'),{status:429});}
 function routeWaypoint(input){ if(input?.placeId) return {placeId:input.placeId}; if(Number.isFinite(input?.lat)&&Number.isFinite(input?.lng)) return {location:{latLng:{latitude:input.lat,longitude:input.lng}}}; throw Object.assign(new Error('유효한 위치가 필요합니다.'),{status:400}); }
 
@@ -25,7 +28,7 @@ async function googleFetch(env, path, body, fieldMask) {
 
 async function handle(req, env) {
   const url=new URL(req.url), p=url.pathname;
-  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.3.0'});
+  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.4.0'});
 
   if(req.method==='POST'&&p==='/api/trips/create') {
     bodyLimit(req); requireOwnerBootstrap(req,env); const input=await req.json(); const tripId=crypto.randomUUID(), memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const state=input.state||{}; state.trip={...(state.trip||{}),id:tripId}; state.revision=1;
@@ -39,20 +42,25 @@ async function handle(req, env) {
 
   if(req.method==='POST'&&p==='/api/invites/create') {
     const me=await auth(req,env); if(me.role!=='OWNER') throw Object.assign(new Error('OWNER만 초대할 수 있습니다.'),{status:403}); const {role='EDITOR'}=await req.json(); if(!['EDITOR','VIEWER'].includes(role)) throw Object.assign(new Error('허용되지 않은 권한입니다.'),{status:400});
-    const code=rand(24), hash=await sha256(code), expires=new Date(Date.now()+24*60*60*1000).toISOString();
+    const code=inviteCode(), hash=await sha256(normalizeInviteCode(code)), expires=new Date(Date.now()+10*60*1000).toISOString();
     await env.DB.prepare('INSERT INTO invites(id,trip_id,code_hash,role,expires_at,created_at) VALUES(?,?,?,?,?,?)').bind(crypto.randomUUID(),me.trip_id,hash,role,expires,nowIso()).run();
-    const base=(env.APP_BASE_URL||env.APP_ORIGIN||new URL(req.url).origin).split(',')[0].replace(/\/$/,''); return json({inviteUrl:`${base}/?invite=${encodeURIComponent(code)}`,expiresAt:expires});
+    const base=(env.APP_BASE_URL||env.APP_ORIGIN||new URL(req.url).origin).split(',')[0].replace(/\/$/,''); return json({inviteCode:code,appUrl:base,expiresAt:expires},200,{'Cache-Control':'no-store'});
   }
 
   if(req.method==='POST'&&p==='/api/invites/join') {
-    const {code,name}=await req.json(); const hash=await sha256(String(code||'')); const inv=await env.DB.prepare('SELECT * FROM invites WHERE code_hash=? AND used_at IS NULL AND expires_at>?').bind(hash,nowIso()).first(); if(!inv) throw Object.assign(new Error('초대 링크가 만료되었거나 이미 사용되었습니다.'),{status:400});
-    const memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const trip=await env.DB.prepare('SELECT state_json,revision FROM trips WHERE id=?').bind(inv.trip_id).first();
+    bodyLimit(req,10000); await limitInviteJoin(req,env); const input=await req.json(), code=normalizeInviteCode(input.code), name=String(input.name||'').trim().slice(0,40);
+    if(!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) throw Object.assign(new Error('참여 코드 8자리를 확인하세요.'),{status:400});
+    if(!name) throw Object.assign(new Error('가족 이름을 입력하세요.'),{status:400});
+    const hash=await sha256(code), inv=await env.DB.prepare('SELECT id,trip_id,role FROM invites WHERE code_hash=? AND used_at IS NULL AND expires_at>?').bind(hash,nowIso()).first();
+    if(!inv) throw Object.assign(new Error('참여 코드가 만료되었거나 이미 사용되었습니다.'),{status:400});
+    const claimedAt=nowIso(), claim=await env.DB.prepare('UPDATE invites SET used_at=? WHERE id=? AND used_at IS NULL AND expires_at>?').bind(claimedAt,inv.id,claimedAt).run();
+    if(Number(claim.meta?.changes)!==1) throw Object.assign(new Error('참여 코드가 이미 사용되었습니다.'),{status:409});
+    const memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token), trip=await env.DB.prepare('SELECT state_json,revision FROM trips WHERE id=?').bind(inv.trip_id).first();
     await env.DB.batch([
-      env.DB.prepare('INSERT INTO members(id,trip_id,name,role,created_at) VALUES(?,?,?,?,?)').bind(memberId,inv.trip_id,String(name||'가족').slice(0,40),inv.role,nowIso()),
-      env.DB.prepare('INSERT INTO device_tokens(id,member_id,token_hash,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(),memberId,tokenHash,nowIso()),
-      env.DB.prepare('UPDATE invites SET used_at=? WHERE id=?').bind(nowIso(),inv.id)
+      env.DB.prepare('INSERT INTO members(id,trip_id,name,role,created_at) VALUES(?,?,?,?,?)').bind(memberId,inv.trip_id,name,inv.role,claimedAt),
+      env.DB.prepare('INSERT INTO device_tokens(id,member_id,token_hash,created_at) VALUES(?,?,?,?)').bind(crypto.randomUUID(),memberId,tokenHash,claimedAt)
     ]);
-    const members=await env.DB.prepare('SELECT id,name,role,created_at FROM members WHERE trip_id=? ORDER BY created_at').bind(inv.trip_id).all(); return json({tripId:inv.trip_id,memberId,token,role:inv.role,state:JSON.parse(trip.state_json),revision:trip.revision,members:members.results});
+    const members=await env.DB.prepare('SELECT id,name,role,created_at FROM members WHERE trip_id=? ORDER BY created_at').bind(inv.trip_id).all(); return json({tripId:inv.trip_id,memberId,token,role:inv.role,state:JSON.parse(trip.state_json),revision:trip.revision,members:members.results},200,{'Cache-Control':'no-store'});
   }
 
   if(req.method==='GET'&&p==='/api/trip') {

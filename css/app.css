@@ -210,6 +210,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .auth-card > svg { width: 20px; height: 20px; margin: 2px auto 0; color: var(--accent); }
 .auth-card strong { display: block; font-size: .9rem; }
 .auth-card p { margin: 5px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
+.join-code { display: grid; place-items: center; min-height: 76px; padding: 14px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 16px; background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); color: var(--text); font-size: clamp(1.55rem, 8vw, 2.15rem); font-weight: 850; letter-spacing: .13em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.join-code-input { text-transform: uppercase; letter-spacing: .12em; font-weight: 800; font-variant-numeric: tabular-nums; }
 .form-error { margin: 0; padding: 10px 12px; border-radius: 11px; background: color-mix(in srgb, var(--danger) 9%, transparent); color: var(--danger); font-size: .78rem; line-height: 1.45; }
 .form-error:empty { display: none; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; min-height: 48px; gap: 12px; padding: 4px 0; }

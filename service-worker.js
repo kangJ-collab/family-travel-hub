@@ -1,4 +1,4 @@
-const CACHE = 'family-travel-hub-v9';
+const CACHE = 'family-travel-hub-v10';
 const CORE = [
   './','./index.html','./css/app.css','./js/app.js','./js/api.js','./js/db.js','./js/state.js','./manifest.webmanifest','./assets/icons/icon-192.png','./assets/icons/icon-512.png'
 ];
