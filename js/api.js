@@ -1,24 +1,24 @@
 const CONFIG_KEY = 'fth.config';
-const DEFAULT_WORKER_URL = 'https://family-travel-hub-api.efde234.workers.dev';
+const WORKER_URL = 'https://family-travel-hub-api.efde234.workers.dev';
 
 export function getConfig() {
-  try { return { workerUrl: DEFAULT_WORKER_URL, ...JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}') }; }
-  catch { return { workerUrl: DEFAULT_WORKER_URL }; }
+  try {
+    const { workerUrl: _legacyWorkerUrl, ...config } = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
+    return config;
+  }
+  catch { return {}; }
 }
 export function setConfig(next) {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify({ ...getConfig(), ...next }));
-}
-export function isWorkerConfigured() {
-  return Boolean(getConfig().workerUrl);
+  const { workerUrl: _ignoredWorkerUrl, ...safeNext } = next;
+  localStorage.setItem(CONFIG_KEY, JSON.stringify({ ...getConfig(), ...safeNext }));
 }
 
 async function request(path, options = {}, auth = false) {
   const cfg = getConfig();
-  if (!cfg.workerUrl) throw new Error('Cloudflare Worker 주소가 설정되지 않았습니다.');
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
   if (auth && cfg.deviceToken) headers.set('Authorization', `Bearer ${cfg.deviceToken}`);
-  const res = await fetch(`${cfg.workerUrl.replace(/\/$/, '')}${path}`, { ...options, headers });
+  const res = await fetch(`${WORKER_URL}${path}`, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `요청 실패 (${res.status})`);

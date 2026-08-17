@@ -68,18 +68,17 @@ npx wrangler secret put OWNER_BOOTSTRAP_KEY
 npx wrangler deploy
 ```
 
-Cloudflare Worker 배포 주소를 PWA의 **설정 > Cloudflare Worker URL**에 넣습니다. `wrangler.toml`의 `APP_ORIGIN`은 GitHub Pages origin(예: `https://id.github.io`), `APP_BASE_URL`은 실제 저장소 경로까지 포함한 PWA 주소로 설정합니다.
+Cloudflare Worker 배포 주소는 `js/api.js`의 `WORKER_URL`에 배포 설정으로 고정합니다. 가족 사용자가 앱 화면에서 주소를 입력하거나 변경할 필요는 없습니다. `wrangler.toml`의 `APP_ORIGIN`은 GitHub Pages origin(예: `https://id.github.io`), `APP_BASE_URL`은 실제 저장소 경로까지 포함한 PWA 주소로 설정합니다.
 
 Google Cloud에서는 Places API (New)와 Routes API만 키에 허용하는 것을 권장합니다. 브라우저에는 Google 키가 전달되지 않습니다.
 
 ## 3. 가족 공유 시작
 
-1. PWA 설정에서 Worker URL 입력
-2. `이 여행을 가족 공유로 만들기`
-3. OWNER 기기 토큰 생성
-4. 여행 도구 > 가족 > `가족 초대`
-5. 가족이 1회용 링크를 열고 이름만 입력
-6. OWNER가 EDITOR / VIEWER 권한 변경 가능
+1. PWA 설정에서 `이 여행을 가족 공유로 만들기`
+2. OWNER 설정키 입력 및 기기 토큰 생성
+3. 여행 도구 > 가족 > `가족 초대`
+4. 가족이 1회용 링크를 열고 이름만 입력
+5. OWNER가 EDITOR / VIEWER 권한 변경 가능
 
 동일 revision에서 동시에 수정하면 서버가 409를 반환하고 최신 가족 일정을 불러옵니다. v1은 단순하고 예측 가능한 충돌 방식을 우선했습니다.
 

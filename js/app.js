@@ -1,5 +1,5 @@
 import { loadState, saveState, buildDays, uid } from './state.js';
-import { api, getConfig, setConfig, isWorkerConfigured } from './api.js';
+import { api, getConfig, setConfig } from './api.js';
 
 let state;
 let activeView = 'home';
@@ -40,7 +40,7 @@ function scheduleSave({ sync = true } = {}) {
 }
 function scheduleSync() {
   const cfg = getConfig();
-  if (!cfg.deviceToken || !cfg.workerUrl) return;
+  if (!cfg.deviceToken) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => pushSync().catch(() => {}), 1200);
 }
@@ -350,7 +350,6 @@ function openSettings() {
       <div class="form-field"><label>여행 이름</label><input name="title" value="${esc(state.trip.title)}"></div>
       <div class="form-grid two"><div class="form-field"><label>여행 시작일</label><input type="date" name="startDate" value="${esc(state.trip.startDate)}"></div><div class="form-field"><label>여행 종료일</label><input type="date" name="endDate" value="${esc(state.trip.endDate)}"></div></div>
       <div class="form-grid two"><div class="form-field"><label>테마</label><select name="theme">${[['system','시스템'],['light','라이트'],['dark','다크'],['ivory','아이보리'],['warm-ivory','웜 아이보리']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="form-field"><label>강조 색상</label><select name="accent">${[['blue','Blue'],['green','Green'],['sand','Sand'],['coral','Coral'],['purple','Purple']].map(([v,l])=>`<option value="${v}" ${state.settings.accent===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
-      <div class="form-field"><label>Cloudflare Worker URL</label><input name="workerUrl" value="${esc(cfg.workerUrl || '')}" placeholder="https://travel-api.example.workers.dev"></div>
       ${cfg.deviceToken ? '' : '<div class="form-field"><label>OWNER 설정키</label><input type="password" name="ownerKey" minlength="16" autocomplete="off" placeholder="처음 가족 여행을 만들 때만 입력"><p class="helper-text">가족 공유 여행을 처음 만들 때만 사용합니다. 가족 초대 링크에는 포함되지 않습니다.</p></div>'}
       <p class="helper-text">Google Places/Routes API 키와 OWNER 설정키는 프런트엔드 소스에 저장하지 않습니다.</p>
       <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button class="primary-btn" type="submit">적용</button></div>
@@ -361,13 +360,12 @@ function openSettings() {
         e.preventDefault(); const fd = new FormData(form); const startDate=String(fd.get('startDate')), endDate=String(fd.get('endDate'));
         state.trip.title = String(fd.get('title')||'').trim() || '가족여행'; state.trip.startDate=startDate; state.trip.endDate=endDate;
         state.days = buildDays(startDate,endDate,state.days); state.settings.activeDayId = state.days.find(d=>d.id===state.settings.activeDayId)?.id || state.days[0]?.id;
-        state.settings.theme=String(fd.get('theme')); state.settings.accent=String(fd.get('accent')); setConfig({ workerUrl: String(fd.get('workerUrl')||'').trim() });
+        state.settings.theme=String(fd.get('theme')); state.settings.accent=String(fd.get('accent'));
         scheduleSave({sync:false}); closeSheet(); renderAll(); toast('설정을 적용했습니다.');
       };
       $('[data-sheet-cancel]', form).onclick=closeSheet;
       $('#connectTripBtn').onclick = async () => {
         if (getConfig().deviceToken) return toast('이미 가족 공유 여행에 연결되어 있습니다.');
-        const workerUrl = form.elements.workerUrl.value.trim(); if (!workerUrl) return toast('먼저 Worker URL을 입력하세요.'); setConfig({ workerUrl });
         const ownerKey = form.elements.ownerKey?.value.trim(); if (!ownerKey) return toast('OWNER 설정키를 입력하세요.');
         try {
           const result = await api.createTrip({ name: state.trip.title, city: state.trip.city, country: state.trip.country, startDate: state.trip.startDate, endDate: state.trip.endDate, state }, ownerKey);
@@ -550,14 +548,13 @@ async function shareMyLocation() {
 async function handleInviteFromUrl() {
   const code=new URL(location.href).searchParams.get('invite'); if(!code)return;
   history.replaceState({},'',location.pathname);
-  if(!isWorkerConfigured()) return toast('설정에서 Worker URL을 먼저 입력한 뒤 초대 링크를 다시 여세요.');
   openSheet('가족여행 참여','INVITE',`<form id="joinForm" class="form-grid"><p>가족이 공유한 여행에 참여합니다. 별도 회원가입은 없습니다.</p><div class="form-field"><label>이 기기에서 사용할 이름</label><input name="name" required placeholder="엄마"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">참여하기</button></div></form>`,()=>{const f=$('#joinForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=async e=>{e.preventDefault();try{const r=await api.joinInvite({code,name:new FormData(f).get('name')});setConfig({deviceToken:r.token,tripId:r.tripId,memberId:r.memberId,role:r.role});state=r.state;state.revision=r.revision;if(r.members)state.members=r.members;await saveState(state);closeSheet();renderAll();toast('가족여행에 참여했습니다.');}catch(err){toast(err.message);}};});
 }
 
 async function init() {
   state=await loadState(); applyTheme(); bindEvents(); renderAll();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  setTimeout(async()=>{ if(isWorkerConfigured()&&getConfig().deviceToken){ refreshWeather(); refreshExchange(); try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } }, 700);
+  setTimeout(async()=>{ if(getConfig().deviceToken){ refreshWeather(); refreshExchange(); try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } }, 700);
   await handleInviteFromUrl();
 }
 
