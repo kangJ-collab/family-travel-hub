@@ -79,12 +79,16 @@ async function handle(req, env) {
   }
 
   if(req.method==='POST'&&p==='/api/routes/optimize') {
-    await auth(req,env); const {items=[]}=await req.json(); if(items.length<3) return json({order:items.map(i=>i.id)});
+    await auth(req,env); const {items=[]}=await req.json();
+    if(!Array.isArray(items)||items.some(item=>!item?.id||!item?.placeId)) throw Object.assign(new Error('최적화할 장소 정보가 올바르지 않습니다.'),{status:400});
+    if(items.length<3) return json({order:items.map(i=>i.id)});
     // 잠긴 장소를 경계로 구간을 나눈다. 각 구간의 시작/끝은 고정하고 중간 항목만 Google Routes가 최적화한다.
     let order=items.map(i=>i.id); const lockedIdx=items.map((x,i)=>x.locked?i:-1).filter(i=>i>=0); const boundaries=[0,...lockedIdx.filter(i=>i>0&&i<items.length-1),items.length-1].filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a-b);
-    for(let b=0;b<boundaries.length-1;b++) { const s=boundaries[b],e=boundaries[b+1]; if(e-s<2) continue; const segment=items.slice(s,e+1), mids=segment.slice(1,-1); if(!mids.length) continue;
+    for(let b=0;b<boundaries.length-1;b++) { const s=boundaries[b],e=boundaries[b+1]; if(e-s<2) continue; const segment=items.slice(s,e+1), mids=segment.slice(1,-1); if(mids.length<2) continue;
       const data=await googleFetch(env,'directions/v2:computeRoutes',{origin:{placeId:segment[0].placeId},destination:{placeId:segment.at(-1).placeId},intermediates:mids.map(x=>({placeId:x.placeId})),travelMode:'DRIVE',routingPreference:'TRAFFIC_AWARE',optimizeWaypointOrder:true,languageCode:'ko-KR',units:'METRIC'},'routes.optimizedIntermediateWaypointIndex,routes.duration,routes.distanceMeters');
-      const idx=data.routes?.[0]?.optimizedIntermediateWaypointIndex||mids.map((_,i)=>i); const segOrder=[segment[0].id,...idx.map(i=>mids[i].id),segment.at(-1).id]; order.splice(s,segment.length,...segOrder);
+      const candidate=data.routes?.[0]?.optimizedIntermediateWaypointIndex;
+      const valid=Array.isArray(candidate)&&candidate.length===mids.length&&new Set(candidate).size===mids.length&&candidate.every(i=>Number.isInteger(i)&&i>=0&&i<mids.length);
+      const idx=valid?candidate:mids.map((_,i)=>i); const segOrder=[segment[0].id,...idx.map(i=>mids[i].id),segment.at(-1).id]; order.splice(s,segment.length,...segOrder);
     }
     return json({order});
   }
