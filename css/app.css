@@ -43,6 +43,7 @@ html[data-accent="coral"] { --accent: #a55e55; }
 html[data-accent="purple"] { --accent: #75658d; }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { overflow-x: clip; overscroll-behavior-x: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
 body { overflow-x: clip; overscroll-behavior: none; }
@@ -175,12 +176,18 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .sheet-header { background: var(--surface); display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 16px 12px; z-index: 2; flex: 0 0 auto; border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent); }
 .sheet-header h2 { margin: 2px 0 0; font-size: 1.25rem; }
 .sheet-body { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); }
-.form-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
+.form-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; min-width: 0; max-width: 100%; }
 .form-grid.two { grid-template-columns: repeat(2,minmax(0,1fr)); }
-.form-field { min-width: 0; }
+.form-grid > *, .form-field { min-width: 0; max-width: 100%; }
 .form-field label { display: block; color: var(--muted); font-size: .75rem; font-weight: 750; margin-bottom: 6px; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); outline: none; font-size: 16px; }
+.form-field input[type="date"], .form-field input[type="time"] { display: block; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
+.form-field input[type="date"]::-webkit-date-and-time-value, .form-field input[type="time"]::-webkit-date-and-time-value { min-width: 0; text-align: left; }
 .form-field textarea { min-height: 90px; resize: vertical; }
+.auth-card { display: grid; grid-template-columns: 38px minmax(0,1fr); gap: 11px; align-items: start; padding: 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); }
+.auth-card > svg { width: 20px; height: 20px; margin: 2px auto 0; color: var(--accent); }
+.auth-card strong { display: block; font-size: .9rem; }
+.auth-card p { margin: 5px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; min-height: 48px; gap: 12px; padding: 4px 0; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--accent); }
 .sheet-actions { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 9px; margin-top: 16px; }
@@ -203,7 +210,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .dashboard-grid { grid-template-columns: 1fr; }
   .route-duo { grid-template-columns: 1fr; }
   .tool-link-grid { grid-template-columns: 1fr 1fr; }
-  .form-grid.two { grid-template-columns: minmax(0,1fr); }
+  .form-grid.two { display: flex; flex-direction: column; }
+  .form-grid.two > * { width: 100%; flex: 0 0 auto; }
   .plan-item { grid-template-columns: 32px minmax(0,1fr) auto; padding: 12px; }
   .plan-item__index { width: 30px; height: 30px; }
   .route-between { margin-left: 44px; }

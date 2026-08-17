@@ -345,15 +345,17 @@ function sortByTimeStable(items) {
 
 function openSettings() {
   const cfg = getConfig();
+  const roleLabel = ({ OWNER:'OWNER · 관리자', EDITOR:'EDITOR · 일정 편집', VIEWER:'VIEWER · 보기 전용' })[cfg.role] || '가족 구성원';
   openSheet('설정', 'APP & TRIP', `
     <form id="settingsForm" class="form-grid">
       <div class="form-field"><label>여행 이름</label><input name="title" value="${esc(state.trip.title)}"></div>
       <div class="form-grid two"><div class="form-field"><label>여행 시작일</label><input type="date" name="startDate" value="${esc(state.trip.startDate)}"></div><div class="form-field"><label>여행 종료일</label><input type="date" name="endDate" value="${esc(state.trip.endDate)}"></div></div>
       <div class="form-grid two"><div class="form-field"><label>테마</label><select name="theme">${[['system','시스템'],['light','라이트'],['dark','다크'],['ivory','아이보리'],['warm-ivory','웜 아이보리']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="form-field"><label>강조 색상</label><select name="accent">${[['blue','Blue'],['green','Green'],['sand','Sand'],['coral','Coral'],['purple','Purple']].map(([v,l])=>`<option value="${v}" ${state.settings.accent===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
+      <div class="auth-card">${icon(cfg.deviceToken ? 'shield-check' : 'shield')}<div><strong>${cfg.deviceToken ? `가족 인증 연결됨 · ${roleLabel}` : '가족 인증 연결 전'}</strong><p>${cfg.deviceToken ? '이 기기의 인증 토큰이 API 요청에 자동으로 사용됩니다. 직접 입력하거나 복사할 필요가 없습니다. 브라우저 데이터를 삭제하면 새 초대가 필요합니다.' : 'OWNER 설정키로 가족 공유를 시작하면 이 기기 전용 인증 토큰이 자동 발급·저장됩니다.'}</p></div></div>
       ${cfg.deviceToken ? '' : '<div class="form-field"><label>OWNER 설정키</label><input type="password" name="ownerKey" minlength="16" autocomplete="off" placeholder="처음 가족 여행을 만들 때만 입력"><p class="helper-text">가족 공유 여행을 처음 만들 때만 사용합니다. 가족 초대 링크에는 포함되지 않습니다.</p></div>'}
       <p class="helper-text">Google Places/Routes API 키와 OWNER 설정키는 프런트엔드 소스에 저장하지 않습니다.</p>
       <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button class="primary-btn" type="submit">적용</button></div>
-      <button id="connectTripBtn" class="secondary-btn" type="button">${cfg.deviceToken ? '가족 여행 연결됨' : '이 여행을 가족 공유로 만들기'}</button>
+      <button id="connectTripBtn" class="secondary-btn" type="button" ${cfg.deviceToken ? 'disabled' : ''}>${cfg.deviceToken ? '가족 인증 연결됨' : '가족 공유 시작하기'}</button>
     </form>`, () => {
       const form = $('#settingsForm');
       form.onsubmit = (e) => {
@@ -531,7 +533,7 @@ function openPlaceMap(place) {
 }
 async function inviteMember() {
   if (getConfig().role!=='OWNER') return toast('OWNER만 가족을 초대할 수 있습니다.');
-  try { const r=await api.invite('EDITOR'); openSheet('가족 초대','FAMILY',`<p>아래 링크를 가족에게 보내세요. 링크는 1회 사용 후 만료됩니다.</p><div class="form-field"><label>초대 링크</label><input id="inviteUrl" readonly value="${esc(r.inviteUrl)}"></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>닫기</button><button id="copyInvite" class="primary-btn">링크 복사</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#copyInvite').onclick=async()=>{await navigator.clipboard.writeText(r.inviteUrl);toast('초대 링크를 복사했습니다.');};}); } catch(err){toast(err.message);} }
+  try { const r=await api.invite('EDITOR'); openSheet('가족 초대','FAMILY',`<p>아래 링크를 가족에게 보내세요. 링크는 1회 사용 후 만료됩니다.</p><div class="auth-card">${icon('key-round')}<div><strong>인증 토큰은 자동으로 발급됩니다</strong><p>가족이 링크를 열고 이름을 입력하면 해당 기기에만 토큰이 저장됩니다. 토큰을 복사하거나 서로 전달할 필요가 없습니다. 브라우저 데이터를 삭제하거나 기기를 바꾸면 새 초대 링크가 필요합니다.</p></div></div><div class="form-field"><label>초대 링크</label><input id="inviteUrl" readonly value="${esc(r.inviteUrl)}"></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>닫기</button><button id="copyInvite" class="primary-btn">링크 복사</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#copyInvite').onclick=async()=>{await navigator.clipboard.writeText(r.inviteUrl);toast('초대 링크를 복사했습니다.');};}); } catch(err){toast(err.message);} }
 function changeRole(memberId) { openSheet('가족 권한 변경','PERMISSION',`<div class="form-field"><label>권한</label><select id="roleSelect"><option value="EDITOR">EDITOR · 일정 편집 가능</option><option value="VIEWER">VIEWER · 보기만 가능</option></select></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn" id="saveRole">적용</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#saveRole').onclick=async()=>{try{await api.setRole(memberId,$('#roleSelect').value);closeSheet();await pullSync();}catch(err){toast(err.message);}};}); }
 
 async function shareMyLocation() {
