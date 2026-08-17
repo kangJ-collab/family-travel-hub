@@ -1,7 +1,9 @@
 const CONFIG_KEY = 'fth.config';
+const DEFAULT_WORKER_URL = 'https://family-travel-hub-api.efde234.workers.dev';
 
 export function getConfig() {
-  try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}'); } catch { return {}; }
+  try { return { workerUrl: DEFAULT_WORKER_URL, ...JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}') }; }
+  catch { return { workerUrl: DEFAULT_WORKER_URL }; }
 }
 export function setConfig(next) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify({ ...getConfig(), ...next }));

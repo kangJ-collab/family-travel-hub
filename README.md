@@ -2,6 +2,12 @@
 
 가족 해외여행을 **한 여행 안에서 함께 계획하고, 현지에서 바로 쓰는 PWA 여행 허브**입니다. 첫 목적지는 베트남 나트랑이지만 도시 데이터는 설정값으로 분리해 다낭 등으로 확장할 수 있습니다.
 
+## 배포 주소
+
+- PWA: https://kangj-collab.github.io/family-travel-hub/
+- Cloudflare Worker: https://family-travel-hub-api.efde234.workers.dev
+- Worker 상태 확인: https://family-travel-hub-api.efde234.workers.dev/api/health
+
 ## 핵심 UX
 
 - 홈은 끝까지 **오늘 일정 중심**입니다. 지도는 앱 안에 상시 표시하지 않습니다.
