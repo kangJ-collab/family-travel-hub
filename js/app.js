@@ -11,6 +11,9 @@ let lastLiveRouteAt = 0;
 let sharedLocations = [];
 let saveTimer = null;
 let syncTimer = null;
+let pageScrollY = 0;
+let pageScrollStyles = null;
+let sheetDismissTimer = null;
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -233,17 +236,68 @@ function updateNav() {
 }
 function go(view) { activeView = view; updateNav(); window.scrollTo({ top: 0, behavior: 'instant' }); }
 
+function lockPageScroll() {
+  if (pageScrollStyles) return;
+  pageScrollY = window.scrollY;
+  pageScrollStyles = {
+    position: document.body.style.position,
+    top: document.body.style.top,
+    left: document.body.style.left,
+    right: document.body.style.right,
+    width: document.body.style.width,
+    overflow: document.body.style.overflow
+  };
+  Object.assign(document.body.style, {
+    position: 'fixed',
+    top: `-${pageScrollY}px`,
+    left: '0',
+    right: '0',
+    width: '100%',
+    overflow: 'hidden'
+  });
+}
+
+function unlockPageScroll() {
+  if (!pageScrollStyles) return;
+  Object.assign(document.body.style, pageScrollStyles);
+  pageScrollStyles = null;
+  window.scrollTo(0, pageScrollY);
+}
+
 function openSheet(title, eyebrow, html, setup) {
+  clearTimeout(sheetDismissTimer);
   if (sheetCleanup) sheetCleanup();
   $('#sheetTitle').textContent = title; $('#sheetEyebrow').textContent = eyebrow;
   $('#sheetBody').innerHTML = html;
-  $('#sheetBackdrop').hidden = false; $('#bottomSheet').hidden = false;
-  document.body.style.overflow = 'hidden';
+  const sheet = $('#bottomSheet');
+  const backdrop = $('#sheetBackdrop');
+  backdrop.classList.remove('is-dismissing');
+  sheet.classList.remove('is-dragging');
+  sheet.style.setProperty('--sheet-drag-y', '0px');
+  backdrop.hidden = false; sheet.hidden = false;
+  sheet.scrollTop = 0;
+  $('#sheetBody').scrollTop = 0;
+  lockPageScroll();
   createIcons(); sheetCleanup = setup?.() || null;
 }
 function closeSheet() {
-  $('#sheetBackdrop').hidden = true; $('#bottomSheet').hidden = true; document.body.style.overflow = '';
+  clearTimeout(sheetDismissTimer);
+  const sheet = $('#bottomSheet');
+  $('#sheetBackdrop').hidden = true; sheet.hidden = true;
+  $('#sheetBackdrop').classList.remove('is-dismissing');
+  sheet.classList.remove('is-dragging');
+  sheet.style.setProperty('--sheet-drag-y', '0px');
+  unlockPageScroll();
   if (sheetCleanup) sheetCleanup(); sheetCleanup = null;
+}
+
+function dismissSheetFromDrag() {
+  const sheet = $('#bottomSheet');
+  sheet.classList.remove('is-dragging');
+  sheet.style.setProperty('--sheet-drag-y', `${sheet.offsetHeight + 32}px`);
+  $('#sheetBackdrop').classList.add('is-dismissing');
+  clearTimeout(sheetDismissTimer);
+  sheetDismissTimer = setTimeout(closeSheet, 220);
 }
 function confirmExternal(name, url, message) {
   pendingExternalUrl = url;
@@ -438,6 +492,40 @@ function bindEvents() {
   $('#syncNowBtn').onclick=pullSync; $('#inviteMemberBtn').onclick=inviteMember; $('#shareLocationBtn').onclick=shareMyLocation;
   $('#familyLocations').addEventListener('click',e=>{const row=e.target.closest('[data-lat]'),b=e.target.closest('[data-action="location-map"]');if(!row||!b)return;const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.dataset.lat+','+row.dataset.lng)}`;confirmExternal('Google Maps',url,'가족이 공유한 위치를 Google Maps에서 확인합니다.');});
   $('#membersList').addEventListener('click',e=>{const row=e.target.closest('[data-member-id]'),b=e.target.closest('[data-action="role"]');if(row&&b)changeRole(row.dataset.memberId);});
+
+  const sheet = $('#bottomSheet');
+  const sheetHandle = $('.sheet-handle', sheet);
+  let sheetDrag = null;
+  sheetHandle.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    sheetDrag = { id: e.pointerId, startY: e.clientY, startedAt: performance.now() };
+    sheetHandle.setPointerCapture(e.pointerId);
+    sheet.classList.add('is-dragging');
+    e.preventDefault();
+  });
+  const moveSheetDrag = e => {
+    if (!sheetDrag || e.pointerId !== sheetDrag.id) return;
+    const distance = Math.max(0, e.clientY - sheetDrag.startY);
+    sheet.style.setProperty('--sheet-drag-y', `${distance}px`);
+    e.preventDefault();
+  };
+  const finishSheetDrag = (e, cancelled = false) => {
+    if (!sheetDrag || e.pointerId !== sheetDrag.id) return;
+    const distance = Math.max(0, e.clientY - sheetDrag.startY);
+    const velocity = distance / Math.max(1, performance.now() - sheetDrag.startedAt);
+    sheetDrag = null;
+    if (sheetHandle.hasPointerCapture(e.pointerId)) sheetHandle.releasePointerCapture(e.pointerId);
+    if (!cancelled && (distance > Math.min(120, sheet.offsetHeight * .22) || (distance > 56 && velocity > .9))) {
+      dismissSheetFromDrag();
+      return;
+    }
+    sheet.classList.remove('is-dragging');
+    sheet.style.setProperty('--sheet-drag-y', '0px');
+  };
+  window.addEventListener('pointermove', moveSheetDrag, { passive: false });
+  window.addEventListener('pointerup', e => finishSheetDrag(e));
+  window.addEventListener('pointercancel', e => finishSheetDrag(e, true));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });
 }
 function openPlaceMap(place) {
   const url=place.placeId ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${encodeURIComponent(place.placeId)}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}`;
