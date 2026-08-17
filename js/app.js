@@ -1,4 +1,4 @@
-import { loadState, saveState, buildDays, uid } from './state.js';
+import { loadState, saveState, buildDays, normalizeState, uid } from './state.js';
 import { api, getConfig, setConfig } from './api.js';
 
 let state;
@@ -51,10 +51,26 @@ function formatDate(dateStr, opts = {}) {
   const d = new Date(`${dateStr}T00:00:00`);
   return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: opts.weekday ? 'short' : undefined }).format(d);
 }
+function dateKeyInZone(timeZone = state?.trip?.timeZone || 'Asia/Ho_Chi_Minh', date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const value = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+function clockMinutesInZone(timeZone, date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const value = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
+  return value.hour * 60 + value.minute;
+}
+function clockText(timeZone, date = new Date()) {
+  return new Intl.DateTimeFormat('ko-KR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+}
+function clockDateText(timeZone, date = new Date()) {
+  return new Intl.DateTimeFormat('ko-KR', { timeZone, month: 'long', day: 'numeric', weekday: 'short' }).format(date);
+}
 function dayNumber(day) { return state.days.findIndex(d => d.id === day.id) + 1; }
 function activeDay() { return state.days.find(d => d.id === state.settings.activeDayId) || state.days[0]; }
 function getTodayTripDay() {
-  const today = new Date().toISOString().slice(0,10);
+  const today = dateKeyInZone();
   return state.days.find(d => d.date === today) || activeDay();
 }
 function fmtTime(time) { return time || '시간 미지정'; }
@@ -87,12 +103,22 @@ function applyTheme() {
 }
 
 function renderAll() {
-  applyTheme(); renderHeader(); renderHome(); renderPlan(); renderSaved(); renderTools(); updateNav(); createIcons();
+  applyTheme(); renderHeader(); renderClocks(); renderHome(); renderPlan(); renderSaved(); renderTools(); updateNav(); createIcons();
 }
 function renderHeader() {
   $('#tripTitle').textContent = state.trip.title;
   $('#tripRange').textContent = `${formatDate(state.trip.startDate)} - ${formatDate(state.trip.endDate)}`;
   $('#tripEyebrow').textContent = `${state.trip.city.toUpperCase()} · ${state.trip.country.toUpperCase()}`;
+}
+function renderClocks() {
+  const now = new Date();
+  const tripZone = state.trip.timeZone || 'Asia/Ho_Chi_Minh';
+  const city = state.trip.city === 'Nha Trang' ? '나트랑' : state.trip.city;
+  $('#tripClockLabel').textContent = `${city} · 현지`;
+  $('#tripClock').textContent = clockText(tripZone, now);
+  $('#tripClockDate').textContent = `${clockDateText(tripZone, now)} · GMT+7`;
+  $('#koreaClock').textContent = clockText('Asia/Seoul', now);
+  $('#koreaClockDate').textContent = `${clockDateText('Asia/Seoul', now)} · GMT+9`;
 }
 function renderHome() {
   const day = getTodayTripDay();
@@ -121,8 +147,9 @@ function renderHome() {
 function findNextItem(day) {
   if (!day?.items?.length) return null;
   const now = new Date();
-  if (day.date !== now.toISOString().slice(0,10)) return day.items[0];
-  const mins = now.getHours() * 60 + now.getMinutes();
+  const tripZone = state.trip.timeZone || 'Asia/Ho_Chi_Minh';
+  if (day.date !== dateKeyInZone(tripZone, now)) return day.items[0];
+  const mins = clockMinutesInZone(tripZone, now);
   return day.items.find(i => { if (!i.time) return false; const [h,m] = i.time.split(':').map(Number); return h*60+m >= mins; }) || day.items.find(i => !i.time) || day.items.at(-1);
 }
 function routeForNext(day, item) {
@@ -192,7 +219,7 @@ function renderExpenses() {
   el.innerHTML = state.expenses.length ? state.expenses.slice().reverse().slice(0,12).map(e => `<div class="simple-row" data-expense-id="${e.id}"><div><h4>${esc(e.title || e.category || '지출')}</h4><small class="muted">${esc(formatDate(e.date))} · ${Number(e.vnd).toLocaleString()} VND</small></div><strong>${money(e.krw)}</strong></div>`).join('') : '<div class="empty-state">환율 계산 후 바로 지출로 기록할 수 있습니다.</div>';
 }
 function renderChecklist() {
-  $('#checklist').innerHTML = state.checklist.map(c => `<div class="check-row" data-check-id="${c.id}"><input type="checkbox" ${c.done?'checked':''} aria-label="${esc(c.title)} 완료"><label class="${c.done?'is-done':''}">${esc(c.title)}</label><button class="check-delete-btn" data-action="remove" aria-label="${esc(c.title)} 삭제">${icon('trash-2')}</button></div>`).join('');
+  $('#checklist').innerHTML = state.checklist.map(c => { const inputId=`check-${c.id}`; return `<div class="check-row" data-check-id="${esc(c.id)}"><input id="${esc(inputId)}" type="checkbox" ${c.done?'checked':''} aria-label="${esc(c.title)} 완료"><label for="${esc(inputId)}" class="${c.done?'is-done':''}">${esc(c.title)}</label><button class="check-delete-btn" data-action="remove" aria-label="${esc(c.title)} 삭제">${icon('trash-2')}</button></div>`; }).join('');
 }
 function renderDocuments() {
   $('#documentsList').innerHTML = state.documents.length ? state.documents.map(d => `<div class="simple-row" data-doc-id="${d.id}"><div><h4>${esc(d.title)}</h4><small class="muted">${esc(d.type || '기타')} ${d.date ? `· ${formatDate(d.date)}`:''}</small></div>${d.url ? `<button class="icon-btn icon-btn--small" data-action="open" aria-label="열기">${icon('external-link')}</button>`:''}</div>`).join('') : '<div class="empty-state">항공, 숙소, 보험, eSIM 등의 예약 정보를 한곳에 보관하세요.</div>';
@@ -212,7 +239,12 @@ function renderExternalTools() {
 }
 function renderMembers() {
   const cfg = getConfig();
-  $('#membersList').innerHTML = state.members.map(m => `<div class="simple-row" data-member-id="${m.id}"><div><h4>${esc(m.name)}</h4><small class="muted">${esc(m.role)}</small></div>${cfg.role==='OWNER' && m.role!=='OWNER' ? `<button class="secondary-btn" data-action="role">권한 변경</button>`:''}</div>`).join('');
+  $('#membersList').innerHTML = state.members.map(m => {
+    const canRename = cfg.role === 'OWNER' || m.id === cfg.memberId || (!cfg.deviceToken && m.role === 'OWNER');
+    const canChangeRole = cfg.role === 'OWNER' && m.role !== 'OWNER';
+    const actions = `${canRename ? `<button class="secondary-btn" data-action="name">${icon('pencil')}이름</button>` : ''}${canChangeRole ? `<button class="secondary-btn" data-action="role">권한 변경</button>` : ''}`;
+    return `<div class="simple-row" data-member-id="${esc(m.id)}"><div><h4>${esc(m.name)}</h4><small class="muted">${esc(m.role)}</small></div>${actions ? `<div class="member-actions">${actions}</div>` : ''}</div>`;
+  }).join('');
 }
 function renderFamilyLocations() {
   const el = $('#familyLocations');
@@ -464,18 +496,18 @@ async function pushSync() {
   try {
     const r=await api.putTrip({ baseRevision:state.revision||0, state }); state.revision=r.revision; $('#syncBadge').textContent='동기화됨';
   } catch(err) {
-    if (err.status===409 && err.data?.state) { state=err.data.state; state.revision=err.data.revision; await saveState(state); renderAll(); toast('가족이 먼저 수정하여 최신 일정을 불러왔습니다.'); }
+    if (err.status===409 && err.data?.state) { state=normalizeState(err.data.state); state.revision=err.data.revision; await saveState(state); renderAll(); toast('가족이 먼저 수정하여 최신 일정을 불러왔습니다.'); }
     else { $('#syncBadge').textContent='오프라인'; }
   }
 }
 async function pullSync() {
   const cfg=getConfig(); if (!cfg.deviceToken) return toast('가족 공유 여행에 연결되어 있지 않습니다.');
-  try { const r=await api.getTrip(); state=r.state; state.revision=r.revision; if (r.members) state.members=r.members; await saveState(state); try { const l=await api.getLocations(); sharedLocations=l.locations||[]; } catch {} renderAll(); toast('최신 가족 일정을 불러왔습니다.'); }
+  try { const r=await api.getTrip(); state=normalizeState(r.state); state.revision=r.revision; if (r.members) state.members=r.members; await saveState(state); try { const l=await api.getLocations(); sharedLocations=l.locations||[]; } catch {} renderAll(); toast('최신 가족 일정을 불러왔습니다.'); }
   catch(err){ toast(err.message); }
 }
 
 function addExpenseSheet(vnd) {
-  const krw=Math.round(vnd*state.exchange.rate); const today=new Date().toISOString().slice(0,10);
+  const krw=Math.round(vnd*state.exchange.rate); const today=dateKeyInZone();
   openSheet('지출 기록', 'TRAVEL BUDGET', `<form id="expenseForm" class="form-grid"><div class="form-field"><label>내용</label><input name="title" placeholder="점심 식사" required></div><div class="form-grid two"><div class="form-field"><label>베트남 동</label><input name="vnd" inputmode="numeric" value="${vnd.toLocaleString()}"></div><div class="form-field"><label>한화</label><input name="krw" inputmode="numeric" value="${krw.toLocaleString()}"></div></div><div class="form-grid two"><div class="form-field"><label>날짜</label>${nativeDateInput({ name:'date', value:today })}</div><div class="form-field"><label>분류</label><select name="category"><option>식비</option><option>교통</option><option>쇼핑</option><option>관광</option><option>숙박</option><option>기타</option></select></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">저장</button></div></form>`,()=>{
     const form=$('#expenseForm'); $('[data-sheet-cancel]').onclick=closeSheet; form.onsubmit=e=>{e.preventDefault();const fd=new FormData(form);state.expenses.push({id:uid('exp'),title:String(fd.get('title')),vnd:Number(rawDigits(fd.get('vnd'))),krw:Number(rawDigits(fd.get('krw'))),date:String(fd.get('date')),category:String(fd.get('category')),rate:state.exchange.rate,createdAt:new Date().toISOString()});scheduleSave();closeSheet();renderAll();toast('가계부에 기록했습니다.');};
   });
@@ -505,7 +537,7 @@ function bindEvents() {
   $('#externalTools').addEventListener('click',e=>{const b=e.target.closest('[data-url]');if(b)confirmExternal(b.dataset.name,b.dataset.url);});
   $('#syncNowBtn').onclick=pullSync; $('#inviteMemberBtn').onclick=inviteMember; $('#shareLocationBtn').onclick=shareMyLocation;
   $('#familyLocations').addEventListener('click',e=>{const row=e.target.closest('[data-lat]'),b=e.target.closest('[data-action="location-map"]');if(!row||!b)return;const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.dataset.lat+','+row.dataset.lng)}`;confirmExternal('Google Maps',url,'가족이 공유한 위치를 Google Maps에서 확인합니다.');});
-  $('#membersList').addEventListener('click',e=>{const row=e.target.closest('[data-member-id]'),b=e.target.closest('[data-action="role"]');if(row&&b)changeRole(row.dataset.memberId);});
+  $('#membersList').addEventListener('click',e=>{const row=e.target.closest('[data-member-id]'),b=e.target.closest('[data-action]');if(!row||!b)return;if(b.dataset.action==='role')changeRole(row.dataset.memberId);if(b.dataset.action==='name')changeMemberName(row.dataset.memberId);});
 
   const sheet = $('#bottomSheet');
   const sheetHandle = $('.sheet-handle', sheet);
@@ -550,6 +582,10 @@ async function inviteMember() {
   if (getConfig().role!=='OWNER') return toast('OWNER만 가족을 초대할 수 있습니다.');
   try { const r=await api.invite('EDITOR'); openSheet('가족 초대','FAMILY',`<p>아래 링크를 가족에게 보내세요. 링크는 1회 사용 후 만료됩니다.</p><div class="auth-card">${icon('key-round')}<div><strong>인증 토큰은 자동으로 발급됩니다</strong><p>가족이 링크를 열고 이름을 입력하면 해당 기기에만 토큰이 저장됩니다. 토큰을 복사하거나 서로 전달할 필요가 없습니다. 브라우저 데이터를 삭제하거나 기기를 바꾸면 새 초대 링크가 필요합니다.</p></div></div><div class="form-field"><label>초대 링크</label><input id="inviteUrl" readonly value="${esc(r.inviteUrl)}"></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>닫기</button><button id="copyInvite" class="primary-btn">링크 복사</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#copyInvite').onclick=async()=>{await navigator.clipboard.writeText(r.inviteUrl);toast('초대 링크를 복사했습니다.');};}); } catch(err){toast(err.message);} }
 function changeRole(memberId) { openSheet('가족 권한 변경','PERMISSION',`<div class="form-field"><label>권한</label><select id="roleSelect"><option value="EDITOR">EDITOR · 일정 편집 가능</option><option value="VIEWER">VIEWER · 보기만 가능</option></select></div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn" id="saveRole">적용</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#saveRole').onclick=async()=>{try{await api.setRole(memberId,$('#roleSelect').value);closeSheet();await pullSync();}catch(err){toast(err.message);}};}); }
+function changeMemberName(memberId) {
+  const member=state.members.find(item=>item.id===memberId); if(!member)return;
+  openSheet('가족 이름 변경','FAMILY',`<form id="memberNameForm" class="form-grid"><div class="form-field"><label for="memberName">표시할 이름</label><input id="memberName" name="name" maxlength="40" value="${esc(member.name)}" required autocomplete="name"></div><p id="memberNameError" class="form-error" role="alert"></p><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">저장</button></div></form>`,()=>{const form=$('#memberNameForm');$('[data-sheet-cancel]').onclick=closeSheet;form.onsubmit=async e=>{e.preventDefault();const name=String(new FormData(form).get('name')||'').trim();if(!name){$('#memberNameError').textContent='이름을 입력하세요.';return;}try{if(getConfig().deviceToken){const result=await api.setMemberName(memberId,name);member.name=result.member?.name||name;}else{member.name=name;}await saveState(state);closeSheet();renderMembers();createIcons();toast('가족 이름을 변경했습니다.');}catch(err){$('#memberNameError').textContent=err.message;}};});
+}
 
 async function shareMyLocation() {
   if (!getConfig().deviceToken) return toast('가족 공유 여행에 연결한 뒤 위치를 공유할 수 있습니다.');
@@ -565,11 +601,12 @@ async function shareMyLocation() {
 async function handleInviteFromUrl() {
   const code=new URL(location.href).searchParams.get('invite'); if(!code)return;
   history.replaceState({},'',location.pathname);
-  openSheet('가족여행 참여','INVITE',`<form id="joinForm" class="form-grid"><p>가족이 공유한 여행에 참여합니다. 별도 회원가입은 없습니다.</p><div class="form-field"><label>이 기기에서 사용할 이름</label><input name="name" required placeholder="엄마"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">참여하기</button></div></form>`,()=>{const f=$('#joinForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=async e=>{e.preventDefault();try{const r=await api.joinInvite({code,name:new FormData(f).get('name')});setConfig({deviceToken:r.token,tripId:r.tripId,memberId:r.memberId,role:r.role});state=r.state;state.revision=r.revision;if(r.members)state.members=r.members;await saveState(state);closeSheet();renderAll();toast('가족여행에 참여했습니다.');}catch(err){toast(err.message);}};});
+  openSheet('가족여행 참여','INVITE',`<form id="joinForm" class="form-grid"><p>가족이 공유한 여행에 참여합니다. 별도 회원가입은 없습니다.</p><div class="form-field"><label>이 기기에서 사용할 이름</label><input name="name" required placeholder="엄마"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">참여하기</button></div></form>`,()=>{const f=$('#joinForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=async e=>{e.preventDefault();try{const r=await api.joinInvite({code,name:new FormData(f).get('name')});setConfig({deviceToken:r.token,tripId:r.tripId,memberId:r.memberId,role:r.role});state=normalizeState(r.state);state.revision=r.revision;if(r.members)state.members=r.members;await saveState(state);closeSheet();renderAll();toast('가족여행에 참여했습니다.');}catch(err){toast(err.message);}};});
 }
 
 async function init() {
   state=await loadState(); applyTheme(); bindEvents(); renderAll();
+  setInterval(renderClocks, 30000);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
   setTimeout(async()=>{ if(getConfig().deviceToken){ refreshWeather(); refreshExchange(); try{ const l=await api.getLocations(); sharedLocations=l.locations||[]; renderFamilyLocations(); createIcons(); }catch{} } else { $('#weatherDetail').textContent='가족 인증 연결 후 갱신'; } }, 700);
   await handleInviteFromUrl();

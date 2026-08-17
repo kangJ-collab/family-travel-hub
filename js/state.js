@@ -3,6 +3,7 @@ import { getValue, setValue } from './db.js';
 const STATE_KEY = 'travel-state-v1';
 const uid = (prefix = 'id') => `${prefix}_${crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
 const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+const DEFAULT_TRIP_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 
 export function defaultState() {
   const start = new Date();
@@ -13,7 +14,7 @@ export function defaultState() {
   return {
     version: 1,
     revision: 0,
-    trip: { id: 'local', title: '나트랑 가족여행', city: 'Nha Trang', country: 'Vietnam', startDate, endDate, lat: 12.2388, lng: 109.1967 },
+    trip: { id: 'local', title: '나트랑 가족여행', city: 'Nha Trang', country: 'Vietnam', startDate, endDate, lat: 12.2388, lng: 109.1967, timeZone: DEFAULT_TRIP_TIME_ZONE },
     days: buildDays(startDate, endDate),
     favorites: [],
     expenses: [],
@@ -47,17 +48,25 @@ export function buildDays(startDate, endDate, existing = []) {
   return out;
 }
 
-export async function loadState() {
-  const saved = await getValue(STATE_KEY).catch(() => null);
-  const state = saved || defaultState();
+export function normalizeState(state) {
+  state.trip ||= {};
+  state.trip.timeZone ||= DEFAULT_TRIP_TIME_ZONE;
+  state.days ||= [];
+  state.members ||= [];
+  state.settings ||= { theme: 'warm-ivory', accent: 'sand', activeDayId: null };
   const expectedDays = buildDays(state.trip.startDate, state.trip.endDate);
-  if (state.days?.length === expectedDays.length && state.days[0]?.date !== expectedDays[0]?.date) {
+  if (state.days.length === expectedDays.length && state.days[0]?.date !== expectedDays[0]?.date) {
     state.days = expectedDays.map((day, index) => ({ ...state.days[index], date: day.date }));
   } else {
-    state.days = buildDays(state.trip.startDate, state.trip.endDate, state.days || []);
+    state.days = buildDays(state.trip.startDate, state.trip.endDate, state.days);
   }
   if (!state.settings.activeDayId) state.settings.activeDayId = state.days[0]?.id || null;
   return state;
+}
+
+export async function loadState() {
+  const saved = await getValue(STATE_KEY).catch(() => null);
+  return normalizeState(saved || defaultState());
 }
 
 export async function saveState(state) {

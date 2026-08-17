@@ -89,6 +89,15 @@ svg { width: 20px; height: 20px; stroke-width: 1.8; }
 .timeline-route svg { width: 14px; height: 14px; }
 .empty-state { padding: 20px 4px 6px; color: var(--muted); text-align: center; }
 
+.dual-clock { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0; margin-bottom: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.clock-zone { min-width: 0; padding: 15px 16px 12px; }
+.clock-zone + .clock-zone { border-left: 1px solid var(--line); }
+.clock-zone--local { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.clock-zone strong { display: block; margin: 4px 0 2px; font-size: 1.55rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+.clock-zone > span { display: block; font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clock-note { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; margin: 0; padding: 9px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: .72rem; line-height: 1.4; }
+.clock-note svg { width: 14px; height: 14px; flex: 0 0 auto; }
+
 .panel { border-radius: var(--radius); padding: 18px; margin-top: 14px; }
 .next-card .primary-btn { width: 100%; margin-top: 14px; }
 .route-duo { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 16px; }
@@ -157,11 +166,15 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .check-row { display: grid; grid-template-columns: 28px minmax(0,1fr) 36px; align-items: center; gap: 8px; min-height: 48px; border-bottom: 1px solid var(--line); }
 .check-row:last-child { border-bottom: 0; }
 .check-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+.check-row label { min-width: 0; min-height: 48px; display: flex; align-items: center; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .check-row label.is-done { text-decoration: line-through; color: var(--muted); }
 .check-delete-btn { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 10px; display: grid; place-items: center; background: transparent; color: var(--muted); }
 .check-delete-btn svg { width: 17px; height: 17px; }
 .weather-card__copy { flex: 1 1 auto; min-width: 0; }
 .weather-card .icon-btn { margin-left: auto; }
+.member-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.member-actions .secondary-btn { min-height: 38px; padding: 0 11px; font-size: .76rem; }
+.member-actions svg { width: 15px; height: 15px; }
 .is-loading svg { animation: spin .8s linear infinite; }
 .tool-link-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin-top: 14px; }
 .tool-link { min-height: 74px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); padding: 12px; text-align: left; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; }

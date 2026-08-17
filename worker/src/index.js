@@ -25,7 +25,7 @@ async function googleFetch(env, path, body, fieldMask) {
 
 async function handle(req, env) {
   const url=new URL(req.url), p=url.pathname;
-  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.2.0'});
+  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'1.3.0'});
 
   if(req.method==='POST'&&p==='/api/trips/create') {
     bodyLimit(req); requireOwnerBootstrap(req,env); const input=await req.json(); const tripId=crypto.randomUUID(), memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const state=input.state||{}; state.trip={...(state.trip||{}),id:tripId}; state.revision=1;
@@ -68,7 +68,18 @@ async function handle(req, env) {
 
   if(req.method==='GET'&&p==='/api/members') { const me=await auth(req,env), rows=await env.DB.prepare('SELECT id,name,role,created_at FROM members WHERE trip_id=? ORDER BY created_at').bind(me.trip_id).all(); return json({members:rows.results}); }
   const memberMatch=p.match(/^\/api\/members\/([^/]+)$/);
-  if(memberMatch&&req.method==='PATCH') { const me=await auth(req,env); if(me.role!=='OWNER') throw Object.assign(new Error('OWNER만 권한을 변경할 수 있습니다.'),{status:403}); const {role}=await req.json(); if(!['EDITOR','VIEWER'].includes(role)) throw Object.assign(new Error('허용되지 않은 권한입니다.'),{status:400}); const target=await env.DB.prepare('SELECT role FROM members WHERE id=? AND trip_id=?').bind(memberMatch[1],me.trip_id).first(); if(!target||target.role==='OWNER') throw Object.assign(new Error('OWNER 권한은 변경할 수 없습니다.'),{status:400}); await env.DB.prepare('UPDATE members SET role=? WHERE id=? AND trip_id=?').bind(role,memberMatch[1],me.trip_id).run(); return json({ok:true}); }
+  if(memberMatch&&req.method==='PATCH') {
+    bodyLimit(req,10000); const me=await auth(req,env), input=await req.json(), targetId=memberMatch[1];
+    const target=await env.DB.prepare('SELECT id,name,role,created_at FROM members WHERE id=? AND trip_id=?').bind(targetId,me.trip_id).first();
+    if(!target) throw Object.assign(new Error('가족 구성원을 찾을 수 없습니다.'),{status:404});
+    const wantsName=Object.prototype.hasOwnProperty.call(input,'name'), wantsRole=Object.prototype.hasOwnProperty.call(input,'role');
+    if(!wantsName&&!wantsRole) throw Object.assign(new Error('변경할 이름 또는 권한이 필요합니다.'),{status:400});
+    let name=target.name, role=target.role;
+    if(wantsName) { if(me.role!=='OWNER'&&me.member_id!==targetId) throw Object.assign(new Error('본인 이름만 변경할 수 있습니다.'),{status:403}); name=String(input.name||'').trim().slice(0,40); if(!name) throw Object.assign(new Error('이름을 입력하세요.'),{status:400}); }
+    if(wantsRole) { if(me.role!=='OWNER') throw Object.assign(new Error('OWNER만 권한을 변경할 수 있습니다.'),{status:403}); if(target.role==='OWNER') throw Object.assign(new Error('OWNER 권한은 변경할 수 없습니다.'),{status:400}); if(!['EDITOR','VIEWER'].includes(input.role)) throw Object.assign(new Error('허용되지 않은 권한입니다.'),{status:400}); role=input.role; }
+    await env.DB.prepare('UPDATE members SET name=?,role=? WHERE id=? AND trip_id=?').bind(name,role,targetId,me.trip_id).run();
+    return json({ok:true,member:{id:target.id,name,role,created_at:target.created_at}});
+  }
 
   if(req.method==='GET'&&p==='/api/places/search') {
     const me=await auth(req,env); await limitGoogle(me,env); if(!env.GOOGLE_MAPS_API_KEY) throw Object.assign(new Error('GOOGLE_MAPS_API_KEY Worker Secret이 설정되지 않았습니다.'),{status:503}); const q=(url.searchParams.get('q')||'').trim(); if(!q) return json({places:[]});
