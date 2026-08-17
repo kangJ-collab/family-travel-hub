@@ -181,13 +181,17 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .form-grid > *, .form-field { min-width: 0; max-width: 100%; }
 .form-field label { display: block; color: var(--muted); font-size: .75rem; font-weight: 750; margin-bottom: 6px; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); outline: none; font-size: 16px; }
-.form-field input[type="date"], .form-field input[type="time"] { display: block; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
-.form-field input[type="date"]::-webkit-date-and-time-value, .form-field input[type="time"]::-webkit-date-and-time-value { min-width: 0; text-align: left; }
+.native-date-control { display: block; position: relative; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; height: 46px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.native-date-control:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.native-date-control > input[type="date"], .native-date-control > input[type="time"] { position: absolute; inset: 0; display: block; box-sizing: border-box !important; inline-size: 100% !important; min-inline-size: 0 !important; max-inline-size: 100% !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; height: 100%; min-height: 0; margin: 0 !important; padding: 10px 12px; border: 0 !important; border-radius: 0; background: transparent; }
+.native-date-control > input[type="date"]::-webkit-date-and-time-value, .native-date-control > input[type="time"]::-webkit-date-and-time-value { min-width: 0; margin: 0; text-align: left; }
 .form-field textarea { min-height: 90px; resize: vertical; }
 .auth-card { display: grid; grid-template-columns: 38px minmax(0,1fr); gap: 11px; align-items: start; padding: 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); }
 .auth-card > svg { width: 20px; height: 20px; margin: 2px auto 0; color: var(--accent); }
 .auth-card strong { display: block; font-size: .9rem; }
 .auth-card p { margin: 5px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
+.form-error { margin: 0; padding: 10px 12px; border-radius: 11px; background: color-mix(in srgb, var(--danger) 9%, transparent); color: var(--danger); font-size: .78rem; line-height: 1.45; }
+.form-error:empty { display: none; }
 .switch-row { display: flex; justify-content: space-between; align-items: center; min-height: 48px; gap: 12px; padding: 4px 0; }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--accent); }
 .sheet-actions { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 9px; margin-top: 16px; }

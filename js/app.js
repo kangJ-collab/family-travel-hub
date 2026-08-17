@@ -19,6 +19,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (v = '') => String(v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const icon = (name) => `<i data-lucide="${name}"></i>`;
+const nativeDateInput = ({ id = '', name, type = 'date', value = '', required = false }) => `<span class="native-date-control"><input ${id ? `id="${esc(id)}"` : ''} name="${esc(name)}" type="${type}" value="${esc(value)}" ${required ? 'required' : ''}></span>`;
 
 function createIcons() {
   if (window.lucide?.createIcons) window.lucide.createIcons({ attrs: { 'aria-hidden': 'true' } });
@@ -313,8 +314,8 @@ function openPlanEditor(item = null, prefill = {}) {
     <form id="planEditForm" class="form-grid">
       <div class="form-field"><label for="planName">장소 또는 일정명</label><input id="planName" name="name" value="${esc(data.name)}" required placeholder="포나가르 사원"></div>
       <div class="form-grid two">
-        <div class="form-field"><label for="planDate">날짜</label><input id="planDate" name="date" type="date" value="${esc(day.date)}" required></div>
-        <div class="form-field"><label for="planTime">시간 · 선택사항</label><input id="planTime" name="time" type="time" value="${esc(data.time || '')}"></div>
+        <div class="form-field"><label for="planDate">날짜</label>${nativeDateInput({ id:'planDate', name:'date', value:day.date, required:true })}</div>
+        <div class="form-field"><label for="planTime">시간 · 선택사항</label>${nativeDateInput({ id:'planTime', name:'time', type:'time', value:data.time || '' })}</div>
       </div>
       <div class="form-field"><label for="planCategory">종류</label><select id="planCategory" name="category">${['호텔','카페','식당','관광','마사지','쇼핑','공항','기타'].map(c=>`<option ${c===data.category?'selected':''}>${c}</option>`).join('')}</select></div>
       <div class="form-field"><label for="planPlaceId">Google Place ID · 선택사항</label><input id="planPlaceId" name="placeId" value="${esc(data.placeId || '')}" placeholder="Places 검색으로 자동 입력"></div>
@@ -349,32 +350,39 @@ function openSettings() {
   openSheet('설정', 'APP & TRIP', `
     <form id="settingsForm" class="form-grid">
       <div class="form-field"><label>여행 이름</label><input name="title" value="${esc(state.trip.title)}"></div>
-      <div class="form-grid two"><div class="form-field"><label>여행 시작일</label><input type="date" name="startDate" value="${esc(state.trip.startDate)}"></div><div class="form-field"><label>여행 종료일</label><input type="date" name="endDate" value="${esc(state.trip.endDate)}"></div></div>
+      <div class="form-grid two"><div class="form-field"><label>여행 시작일</label>${nativeDateInput({ name:'startDate', value:state.trip.startDate })}</div><div class="form-field"><label>여행 종료일</label>${nativeDateInput({ name:'endDate', value:state.trip.endDate })}</div></div>
       <div class="form-grid two"><div class="form-field"><label>테마</label><select name="theme">${[['system','시스템'],['light','라이트'],['dark','다크'],['ivory','아이보리'],['warm-ivory','웜 아이보리']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="form-field"><label>강조 색상</label><select name="accent">${[['blue','Blue'],['green','Green'],['sand','Sand'],['coral','Coral'],['purple','Purple']].map(([v,l])=>`<option value="${v}" ${state.settings.accent===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
       <div class="auth-card">${icon(cfg.deviceToken ? 'shield-check' : 'shield')}<div><strong>${cfg.deviceToken ? `가족 인증 연결됨 · ${roleLabel}` : '가족 인증 연결 전'}</strong><p>${cfg.deviceToken ? '이 기기의 인증 토큰이 API 요청에 자동으로 사용됩니다. 직접 입력하거나 복사할 필요가 없습니다. 브라우저 데이터를 삭제하면 새 초대가 필요합니다.' : 'OWNER 설정키로 가족 공유를 시작하면 이 기기 전용 인증 토큰이 자동 발급·저장됩니다.'}</p></div></div>
-      ${cfg.deviceToken ? '' : '<div class="form-field"><label>OWNER 설정키</label><input type="password" name="ownerKey" minlength="16" autocomplete="off" placeholder="처음 가족 여행을 만들 때만 입력"><p class="helper-text">가족 공유 여행을 처음 만들 때만 사용합니다. 가족 초대 링크에는 포함되지 않습니다.</p></div>'}
+      ${cfg.deviceToken ? '' : '<div class="form-field"><label>OWNER 설정키</label><input type="password" name="ownerKey" autocomplete="off" placeholder="Cloudflare에 등록한 설정키 입력"><p class="helper-text">Cloudflare Worker Secret에 등록한 값과 똑같이 입력하세요. 가족 초대 링크에는 포함되지 않습니다.</p></div>'}
       <p class="helper-text">Google Places/Routes API 키와 OWNER 설정키는 프런트엔드 소스에 저장하지 않습니다.</p>
-      <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button class="primary-btn" type="submit">적용</button></div>
-      <button id="connectTripBtn" class="secondary-btn" type="button" ${cfg.deviceToken ? 'disabled' : ''}>${cfg.deviceToken ? '가족 인증 연결됨' : '가족 공유 시작하기'}</button>
+      <p id="settingsError" class="form-error" role="alert"></p>
+      <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button id="saveSettingsBtn" class="primary-btn" type="submit">${cfg.deviceToken ? '설정 저장' : '저장 및 가족 연결'}</button></div>
     </form>`, () => {
       const form = $('#settingsForm');
-      form.onsubmit = (e) => {
+      form.onsubmit = async (e) => {
         e.preventDefault(); const fd = new FormData(form); const startDate=String(fd.get('startDate')), endDate=String(fd.get('endDate'));
+        const errorEl = $('#settingsError'); const submitBtn = $('#saveSettingsBtn'); const ownerKey = String(fd.get('ownerKey')||'').trim();
+        errorEl.textContent='';
+        if (!cfg.deviceToken && !ownerKey) { errorEl.textContent='OWNER 설정키를 입력하면 설정 저장과 가족 연결이 함께 진행됩니다.'; return; }
         state.trip.title = String(fd.get('title')||'').trim() || '가족여행'; state.trip.startDate=startDate; state.trip.endDate=endDate;
         state.days = buildDays(startDate,endDate,state.days); state.settings.activeDayId = state.days.find(d=>d.id===state.settings.activeDayId)?.id || state.days[0]?.id;
         state.settings.theme=String(fd.get('theme')); state.settings.accent=String(fd.get('accent'));
-        scheduleSave({sync:false}); closeSheet(); renderAll(); toast('설정을 적용했습니다.');
+        submitBtn.disabled=true; submitBtn.textContent=cfg.deviceToken?'저장 중...':'연결 중...';
+        try {
+          await saveState(state);
+          if (!cfg.deviceToken) {
+            const result = await api.createTrip({ name: state.trip.title, city: state.trip.city, country: state.trip.country, startDate: state.trip.startDate, endDate: state.trip.endDate, state }, ownerKey);
+            form.elements.ownerKey.value='';
+            setConfig({ deviceToken: result.token, tripId: result.tripId, memberId: result.memberId, role:'OWNER' }); state.trip.id=result.tripId; state.revision=result.revision||0; if (result.members) state.members=result.members; await saveState(state); closeSheet(); renderAll(); toast('OWNER 가족 인증이 연결되었습니다.');
+          } else {
+            scheduleSync(); closeSheet(); renderAll(); toast('설정을 저장했습니다.');
+          }
+        } catch(err) {
+          errorEl.textContent=err.message==='Failed to fetch'?'서버에 연결하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.':err.message;
+          submitBtn.disabled=false; submitBtn.textContent=cfg.deviceToken?'설정 저장':'저장 및 가족 연결';
+        }
       };
       $('[data-sheet-cancel]', form).onclick=closeSheet;
-      $('#connectTripBtn').onclick = async () => {
-        if (getConfig().deviceToken) return toast('이미 가족 공유 여행에 연결되어 있습니다.');
-        const ownerKey = form.elements.ownerKey?.value.trim(); if (!ownerKey) return toast('OWNER 설정키를 입력하세요.');
-        try {
-          const result = await api.createTrip({ name: state.trip.title, city: state.trip.city, country: state.trip.country, startDate: state.trip.startDate, endDate: state.trip.endDate, state }, ownerKey);
-          form.elements.ownerKey.value='';
-          setConfig({ deviceToken: result.token, tripId: result.tripId, memberId: result.memberId, role:'OWNER' }); state.trip.id=result.tripId; state.revision=result.revision||0; if (result.members) state.members=result.members; await saveState(state); closeSheet(); renderAll(); toast('가족 공유 여행을 만들었습니다.');
-        } catch(err) { toast(err.message); }
-      };
     });
 }
 
@@ -463,13 +471,13 @@ async function pullSync() {
 
 function addExpenseSheet(vnd) {
   const krw=Math.round(vnd*state.exchange.rate); const today=new Date().toISOString().slice(0,10);
-  openSheet('지출 기록', 'TRAVEL BUDGET', `<form id="expenseForm" class="form-grid"><div class="form-field"><label>내용</label><input name="title" placeholder="점심 식사" required></div><div class="form-grid two"><div class="form-field"><label>베트남 동</label><input name="vnd" inputmode="numeric" value="${vnd.toLocaleString()}"></div><div class="form-field"><label>한화</label><input name="krw" inputmode="numeric" value="${krw.toLocaleString()}"></div></div><div class="form-grid two"><div class="form-field"><label>날짜</label><input type="date" name="date" value="${today}"></div><div class="form-field"><label>분류</label><select name="category"><option>식비</option><option>교통</option><option>쇼핑</option><option>관광</option><option>숙박</option><option>기타</option></select></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">저장</button></div></form>`,()=>{
+  openSheet('지출 기록', 'TRAVEL BUDGET', `<form id="expenseForm" class="form-grid"><div class="form-field"><label>내용</label><input name="title" placeholder="점심 식사" required></div><div class="form-grid two"><div class="form-field"><label>베트남 동</label><input name="vnd" inputmode="numeric" value="${vnd.toLocaleString()}"></div><div class="form-field"><label>한화</label><input name="krw" inputmode="numeric" value="${krw.toLocaleString()}"></div></div><div class="form-grid two"><div class="form-field"><label>날짜</label>${nativeDateInput({ name:'date', value:today })}</div><div class="form-field"><label>분류</label><select name="category"><option>식비</option><option>교통</option><option>쇼핑</option><option>관광</option><option>숙박</option><option>기타</option></select></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">저장</button></div></form>`,()=>{
     const form=$('#expenseForm'); $('[data-sheet-cancel]').onclick=closeSheet; form.onsubmit=e=>{e.preventDefault();const fd=new FormData(form);state.expenses.push({id:uid('exp'),title:String(fd.get('title')),vnd:Number(rawDigits(fd.get('vnd'))),krw:Number(rawDigits(fd.get('krw'))),date:String(fd.get('date')),category:String(fd.get('category')),rate:state.exchange.rate,createdAt:new Date().toISOString()});scheduleSave();closeSheet();renderAll();toast('가계부에 기록했습니다.');};
   });
 }
 
 function addChecklistSheet() { openSheet('체크리스트 추가','PREP',`<form id="checkForm" class="form-grid"><div class="form-field"><label>항목</label><input name="title" required placeholder="상비약"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">추가</button></div></form>`,()=>{const f=$('#checkForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=e=>{e.preventDefault();state.checklist.push({id:uid('check'),title:new FormData(f).get('title'),done:false});scheduleSave();closeSheet();renderAll();};}); }
-function addDocumentSheet() { openSheet('예약 · 문서 추가','BOOKING',`<form id="docForm" class="form-grid"><div class="form-field"><label>제목</label><input name="title" required placeholder="아미아나 리조트"></div><div class="form-grid two"><div class="form-field"><label>종류</label><select name="type"><option>숙소</option><option>항공</option><option>보험</option><option>eSIM</option><option>투어</option><option>기타</option></select></div><div class="form-field"><label>날짜 · 선택</label><input type="date" name="date"></div></div><div class="form-field"><label>링크 · 선택</label><input name="url" type="url" placeholder="https://"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">저장</button></div></form>`,()=>{const f=$('#docForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=e=>{e.preventDefault();const fd=new FormData(f);state.documents.push({id:uid('doc'),title:fd.get('title'),type:fd.get('type'),date:fd.get('date'),url:fd.get('url')});scheduleSave();closeSheet();renderAll();};}); }
+function addDocumentSheet() { openSheet('예약 · 문서 추가','BOOKING',`<form id="docForm" class="form-grid"><div class="form-field"><label>제목</label><input name="title" required placeholder="아미아나 리조트"></div><div class="form-grid two"><div class="form-field"><label>종류</label><select name="type"><option>숙소</option><option>항공</option><option>보험</option><option>eSIM</option><option>투어</option><option>기타</option></select></div><div class="form-field"><label>날짜 · 선택</label>${nativeDateInput({ name:'date' })}</div></div><div class="form-field"><label>링크 · 선택</label><input name="url" type="url" placeholder="https://"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">저장</button></div></form>`,()=>{const f=$('#docForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=e=>{e.preventDefault();const fd=new FormData(f);state.documents.push({id:uid('doc'),title:fd.get('title'),type:fd.get('type'),date:fd.get('date'),url:fd.get('url')});scheduleSave();closeSheet();renderAll();};}); }
 
 function bindEvents() {
   $$('.nav-item').forEach(b => b.addEventListener('click',()=>go(b.dataset.nav)));
