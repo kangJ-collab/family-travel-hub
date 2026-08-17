@@ -1,0 +1,13 @@
+{
+  "name": "family-travel-hub-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:remote": "wrangler d1 execute family-travel-hub --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

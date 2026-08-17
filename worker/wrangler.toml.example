@@ -1,0 +1,17 @@
+name = "family-travel-hub-api"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[vars]
+# GitHub Pages 주소. 여러 개면 쉼표로 구분합니다.
+APP_ORIGIN = "https://YOUR_GITHUB_ID.github.io"
+# 초대 링크에 사용할 실제 PWA 경로
+APP_BASE_URL = "https://YOUR_GITHUB_ID.github.io/family-travel-hub"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "family-travel-hub"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# Google API 키는 여기에 적지 않습니다.
+# wrangler secret put GOOGLE_MAPS_API_KEY

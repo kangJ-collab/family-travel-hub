@@ -1,0 +1,7 @@
+.tools/
+worker/node_modules/
+worker/.wrangler/
+worker/wrangler.toml
+worker/.dev.vars
+.DS_Store
+Thumbs.db
