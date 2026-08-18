@@ -18,3 +18,5 @@
 
 ## Data design
 The family trip state is intentionally stored as one JSON document plus a revision number. This keeps the v1 D1 schema small and makes offline-first development simple. For a larger public service, migrate to normalized itinerary/place/expense tables and operation-based sync.
+- Expenses keep the existing flat `state.expenses[]` shape. Schedule-linked expenses add an optional `planItemId`; ordinary expenses keep it `null`, so existing records remain valid.
+- Expense totals are calculated from stored VND and KRW values. The `settings.moneyDisplay` value only changes per-row presentation (`compact` or `detail`) and is backward-compatible with older state documents.

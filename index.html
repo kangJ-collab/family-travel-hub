@@ -112,6 +112,7 @@
         <div class="plan-actions">
           <button class="secondary-btn" id="recommendRouteBtn" type="button"><i data-lucide="route"></i><span>동선 추천</span></button>
           <button class="secondary-btn" id="refreshRoutesBtn" type="button"><i data-lucide="refresh-cw"></i><span>이동시간 갱신</span></button>
+          <button class="secondary-btn" id="togglePlanOrderBtn" type="button" aria-pressed="false"><i data-lucide="arrow-up-down"></i><span>순서 변경</span></button>
         </div>
         <div id="planList" class="plan-list"></div>
       </section>
@@ -164,7 +165,8 @@
 
         <article class="panel tool-card">
           <div class="panel__title-row"><div><p class="eyebrow">BUDGET</p><h3>여행 가계부</h3></div><i data-lucide="wallet"></i></div>
-          <div class="summary-row"><span>이번 여행</span><strong id="tripSpendTotal">0원</strong></div>
+          <div class="summary-row budget-summary"><div><span>이번 여행</span><strong id="tripSpendTotal">0 동</strong></div><strong id="tripSpendTotalKrw">약 0원</strong></div>
+          <div id="moneyDisplayToggle" class="segmented-control" role="group" aria-label="가계부 금액 표시"><button type="button" data-money-display="compact" aria-pressed="true">간단</button><button type="button" data-money-display="detail" aria-pressed="false">상세</button></div>
           <div id="expenseList" class="simple-list"></div>
         </article>
 

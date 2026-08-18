@@ -3,8 +3,10 @@ import { api, getConfig, setConfig } from './api.js';
 
 let state;
 let activeView = 'home';
+let planReorderMode = false;
 let sheetCleanup = null;
 let pendingExternalUrl = null;
+let pendingExternalMode = 'new-tab';
 let currentPosition = null;
 let gpsWatchId = null;
 let lastLiveRouteAt = 0;
@@ -102,6 +104,21 @@ function formatVndKorean(value) {
   if (n >= 1000) return `${Math.floor(n / 1000)}천${n % 1000 ? ` ${n % 1000}` : ''} 동`;
   return `${n.toLocaleString('ko-KR')} 동`;
 }
+function expenseCategoryForPlan(category) {
+  return ({ '식당':'식비', '카페':'식비', '쇼핑':'쇼핑', '호텔':'숙박', '공항':'교통', '관광':'관광', '마사지':'관광', '기타':'기타' })[category] || '기타';
+}
+function findPlanItem(planItemId) {
+  if (!planItemId) return null;
+  for (const day of state.days) { const item = day.items.find(x => x.id === planItemId); if (item) return item; }
+  return null;
+}
+function expensesForPlanItem(planItemId) { return state.expenses.filter(expense => expense.planItemId === planItemId); }
+function expenseTotals(expenses) { return expenses.reduce((total, expense) => ({ vnd: total.vnd + Number(expense.vnd || 0), krw: total.krw + Number(expense.krw || 0) }), { vnd: 0, krw: 0 }); }
+function expenseAmountText(expense) {
+  return state.settings.moneyDisplay === 'detail'
+    ? `${Number(expense.vnd || 0).toLocaleString('ko-KR')} VND · ₩${Math.round(Number(expense.krw || 0)).toLocaleString('ko-KR')}`
+    : formatVndKorean(expense.vnd);
+}
 
 function applyTheme() {
   const { theme = 'warm-ivory', accent = 'sand' } = state.settings;
@@ -171,7 +188,13 @@ function todayExpenses(date) { return state.expenses.filter(e => e.date === date
 
 function renderPlan() {
   const tabs = $('#dayTabs');
-  tabs.innerHTML = state.days.map((d,i) => `<button class="day-tab ${d.id === activeDay()?.id ? 'is-active' : ''}" data-day-id="${d.id}" role="tab" type="button"><span>DAY ${i+1}</span><span class="day-tab__date">${formatDate(d.date)}</span></button>`).join('');
+  tabs.innerHTML = state.days.map((d,i) => `<button class="day-tab ${d.id === activeDay()?.id ? 'is-active' : ''}" data-day-id="${esc(d.id)}" role="tab" type="button"><span>DAY ${i+1}</span><span class="day-tab__date">${formatDate(d.date)}</span></button>`).join('');
+  const orderButton = $('#togglePlanOrderBtn');
+  if (orderButton) {
+    orderButton.setAttribute('aria-pressed', String(planReorderMode));
+    orderButton.classList.toggle('is-active', planReorderMode);
+    const label = $('span', orderButton); if (label) label.textContent = planReorderMode ? '순서 변경 완료' : '순서 변경';
+  }
   const day = activeDay();
   const list = $('#planList');
   if (!day?.items?.length) {
@@ -179,22 +202,24 @@ function renderPlan() {
     return;
   }
   list.innerHTML = day.items.map((item, idx) => `
-    <div>
-      <article class="plan-item" data-item-id="${item.id}">
-        <div class="plan-item__index">${idx+1}</div>
-        <div class="plan-item__main">
-          <h3 class="plan-item__name">${esc(item.name)}</h3>
-          <div class="plan-item__meta">
-            <span>${icon('clock-3')}${esc(fmtTime(item.time))}</span>
-            ${item.locked ? `<span>${icon('lock')}잠금</span>` : ''}
-            ${item.category ? `<span>${icon(categoryIcon(item.category))}${esc(item.category)}</span>` : ''}
+    <div data-item-id="${esc(item.id)}">
+      <article class="plan-item schedule-card ${expensesForPlanItem(item.id).length ? 'has-expense' : ''}" data-item-id="${esc(item.id)}">
+        <div class="schedule-header">
+          <div class="schedule-title">
+            <span class="schedule-index">${idx+1}</span>
+            <span class="schedule-name">${esc(item.name)}</span>
+          </div>
+          <button class="expense-btn" data-action="expense" type="button">지출 기록</button>
+        </div>
+        <div class="schedule-meta">
+          <div class="schedule-time">${esc(`${fmtTime(item.time)} · ${item.category || '기타'}`)}</div>
+          <div class="schedule-actions">
+            <button class="edit-btn" data-action="edit" type="button" aria-label="일정 수정">${icon('pencil')}</button>
+            <button class="delete-btn" data-action="delete" type="button" aria-label="일정 삭제">${icon('trash-2')}</button>
           </div>
         </div>
-        <div class="plan-item__actions">
-          <button data-action="up" aria-label="위로 이동" ${idx===0?'disabled':''}>${icon('chevron-up')}</button>
-          <button data-action="edit" aria-label="일정 편집">${icon('pencil')}</button>
-        </div>
       </article>
+      ${planReorderMode ? `<div class="plan-reorder-controls" aria-label="${esc(item.name)} 순서 변경"><span>순서 변경</span><button data-action="up" type="button" ${idx===0?'disabled':''}>${icon('chevron-up')}위로</button><button data-action="down" type="button" ${idx===day.items.length-1?'disabled':''}>${icon('chevron-down')}아래로</button></div>` : ''}
       ${idx < day.items.length-1 ? `<div class="route-between"><span>${icon('car-front')}${esc(item.routeToNext?.driveText || '차량 --')}</span><span>${icon('footprints')}${esc(item.routeToNext?.walkText || '도보 --')}</span></div>` : ''}
     </div>`).join('');
 }
@@ -223,10 +248,28 @@ function renderQuickAmounts() {
   const vals = [10000,50000,100000,200000,500000,1000000];
   $('#quickAmounts').innerHTML = vals.map(v => `<button type="button" class="quick-amount" data-vnd="${v}">${formatVndKorean(v).replace(' 동','')}</button>`).join('');
 }
+function renderMoneyDisplayToggle() {
+  $$('[data-money-display]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.moneyDisplay === state.settings.moneyDisplay)));
+}
 function renderExpenses() {
-  $('#tripSpendTotal').textContent = money(state.expenses.reduce((s,e)=>s+Number(e.krw||0),0));
+  renderMoneyDisplayToggle();
+  const total = expenseTotals(state.expenses);
+  $('#tripSpendTotal').textContent = formatVndKorean(total.vnd);
+  $('#tripSpendTotalKrw').textContent = `약 ${money(total.krw)}`;
   const el = $('#expenseList');
-  el.innerHTML = state.expenses.length ? state.expenses.slice().reverse().slice(0,12).map(e => `<div class="simple-row" data-expense-id="${e.id}"><div><h4>${esc(e.title || e.category || '지출')}</h4><small class="muted">${esc(formatDate(e.date))} · ${Number(e.vnd).toLocaleString()} VND</small></div><strong>${money(e.krw)}</strong></div>`).join('') : '<div class="empty-state">환율 계산 후 바로 지출로 기록할 수 있습니다.</div>';
+  if (!state.expenses.length) { el.innerHTML = '<div class="empty-state">환율 계산 후 바로 지출로 기록할 수 있습니다.</div>'; return; }
+  const dates = [...new Set(state.expenses.map(expense => expense.date || ''))].sort((a,b) => b.localeCompare(a));
+  el.innerHTML = dates.map(date => {
+    const group = state.expenses.filter(expense => (expense.date || '') === date).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    const groupTotal = expenseTotals(group); const day = state.days.find(item => item.date === date);
+    const dayLabel = day ? `DAY ${dayNumber(day)} · ${formatDate(date)}` : (formatDate(date) || '날짜 미지정');
+    const rows = group.map(expense => {
+      const linkedItem = findPlanItem(expense.planItemId);
+      const linkLabel = expense.planItemId ? (linkedItem ? `${linkedItem.name} 일정` : '연결된 일정 없음') : '일반 지출';
+      return `<div class="simple-row expense-row" data-expense-id="${esc(expense.id)}"><div class="expense-row__copy"><h4>${esc(expense.title || expense.category || '지출')}</h4><small class="expense-row__meta">${esc(expense.category || '기타')} · ${esc(linkLabel)}</small><span class="expense-row__amount ${state.settings.moneyDisplay === 'detail' ? 'expense-row__amount--detail' : ''}">${esc(expenseAmountText(expense))}</span></div><button class="check-delete-btn expense-delete-btn" data-action="remove-expense" type="button" aria-label="${esc(expense.title || '지출')} 삭제">${icon('trash-2')}</button></div>`;
+    }).join('');
+    return `<section class="expense-day-group" data-expense-date="${esc(date)}"><div class="expense-day-heading"><div><p class="eyebrow">${day ? `DAY ${dayNumber(day)}` : 'EXPENSES'}</p><h4>${esc(dayLabel)}</h4></div><div class="expense-day-total"><strong>${esc(formatVndKorean(groupTotal.vnd))}</strong><small>약 ${esc(money(groupTotal.krw))}</small></div></div><div class="simple-list">${rows}</div></section>`;
+  }).join('');
 }
 function renderChecklist() {
   $('#checklist').innerHTML = state.checklist.map(c => { const inputId=`check-${c.id}`; return `<div class="check-row" data-check-id="${esc(c.id)}"><input id="${esc(inputId)}" type="checkbox" ${c.done?'checked':''} aria-label="${esc(c.title)} 완료"><label for="${esc(inputId)}" class="${c.done?'is-done':''}">${esc(c.title)}</label><button class="check-delete-btn" data-action="remove" aria-label="${esc(c.title)} 삭제">${icon('trash-2')}</button></div>`; }).join('');
@@ -236,16 +279,16 @@ function renderDocuments() {
 }
 function renderExternalTools() {
   const tools = [
-    ['Google Maps','지도 · 길찾기','map','https://www.google.com/maps'],
-    ['Papago','번역','languages','https://papago.naver.com/'],
-    ['Google Translate','번역','languages','https://translate.google.com/'],
-    ['Grab','차량 · 배달','car-front','https://www.grab.com/vn/'],
-    ['Windy','바람 · 기상','wind','https://www.windy.com/'],
-    ['LOTTE Mart Vietnam','장보기','shopping-cart','https://www.lottemart.vn/'],
-    ['해외안전여행','공식 안전정보','shield-check','https://www.0404.go.kr/'],
-    ['USGS Earthquakes','최근 지진','activity','https://earthquake.usgs.gov/earthquakes/map/']
+    ['Google Maps','지도 · 길찾기','map','https://www.google.com/maps','new-tab'],
+    ['Papago','번역','languages','https://papago.naver.com/','new-tab'],
+    ['Google Translate','번역','languages','https://translate.google.com/','new-tab'],
+    ['Grab','차량 · 배달','car-front','https://www.grab.com/vn/','same-window'],
+    ['Windy','바람 · 기상','wind','https://www.windy.com/','new-tab'],
+    ['LOTTE Mart Vietnam','장보기','shopping-cart','https://www.lottemart.vn/','new-tab'],
+    ['해외안전여행','공식 안전정보','shield-check','https://www.0404.go.kr/','new-tab'],
+    ['USGS Earthquakes','최근 지진','activity','https://earthquake.usgs.gov/earthquakes/map/','new-tab']
   ];
-  $('#externalTools').innerHTML = tools.map(([name,desc,ic,url]) => `<button class="tool-link" type="button" data-url="${url}" data-name="${name}">${icon(ic)}<span>${name}</span><small>${desc}</small></button>`).join('');
+  $('#externalTools').innerHTML = tools.map(([name,desc,ic,url,mode]) => `<button class="tool-link" type="button" data-url="${url}" data-name="${name}" data-open-mode="${mode}">${icon(ic)}<span>${name}</span><small>${desc}</small></button>`).join('');
 }
 function renderMembers() {
   const cfg = getConfig();
@@ -344,13 +387,14 @@ function dismissSheetFromDrag() {
   clearTimeout(sheetDismissTimer);
   sheetDismissTimer = setTimeout(closeSheet, 220);
 }
-function confirmExternal(name, url, message) {
+function confirmExternal(name, url, message, { mode = 'new-tab' } = {}) {
   pendingExternalUrl = url;
+  pendingExternalMode = mode;
   $('#modalTitle').textContent = `${name}로 이동합니다`;
   $('#modalMessage').textContent = message || '현재 웹앱을 벗어나 외부 앱 또는 웹사이트가 열립니다.';
   $('#modalBackdrop').hidden = false; $('#confirmModal').hidden = false; createIcons();
 }
-function closeModal() { $('#modalBackdrop').hidden = true; $('#confirmModal').hidden = true; pendingExternalUrl = null; }
+function closeModal() { $('#modalBackdrop').hidden = true; $('#confirmModal').hidden = true; pendingExternalUrl = null; pendingExternalMode = 'new-tab'; }
 
 function openPlanEditor(item = null, prefill = {}) {
   const day = activeDay(); const data = item || { name: prefill.name || '', time: '', category: prefill.category || '기타', locked: false, placeId: prefill.placeId || '', note: '' };
@@ -366,7 +410,6 @@ function openPlanEditor(item = null, prefill = {}) {
       <div class="form-field"><label for="planNote">메모</label><textarea id="planNote" name="note" placeholder="예약번호, 주문할 메뉴 등">${esc(data.note || '')}</textarea></div>
       <label class="switch-row"><span>동선 추천에서 위치 잠금</span><input type="checkbox" name="locked" ${data.locked?'checked':''}></label>
       <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button class="primary-btn" type="submit">저장</button></div>
-      ${item ? '<button id="deletePlanItem" class="danger-btn" type="button">일정 삭제</button>' : ''}
     </form>`, () => {
       const form = $('#planEditForm');
       const submit = (e) => {
@@ -378,7 +421,6 @@ function openPlanEditor(item = null, prefill = {}) {
       };
       form.addEventListener('submit', submit);
       $('[data-sheet-cancel]', form).onclick = closeSheet;
-      if (item) $('#deletePlanItem').onclick = () => { day.items = day.items.filter(x => x.id !== item.id); scheduleSave(); closeSheet(); renderAll(); toast('일정을 삭제했습니다.'); };
       return () => form.removeEventListener('submit', submit);
     });
 }
@@ -518,11 +560,36 @@ async function pullSync() {
   catch(err){ toast(err.message); }
 }
 
-function addExpenseSheet(vnd) {
-  const krw=Math.round(vnd*state.exchange.rate); const today=dateKeyInZone();
-  openSheet('지출 기록', 'TRAVEL BUDGET', `<form id="expenseForm" class="form-grid"><div class="form-field"><label>내용</label><input name="title" placeholder="점심 식사" required></div><div class="form-grid two"><div class="form-field"><label>베트남 동</label><input name="vnd" inputmode="numeric" value="${vnd.toLocaleString()}"></div><div class="form-field"><label>한화</label><input name="krw" inputmode="numeric" value="${krw.toLocaleString()}"></div></div><div class="form-grid two"><div class="form-field"><label>날짜</label>${nativeDateInput({ name:'date', value:today })}</div><div class="form-field"><label>분류</label><select name="category"><option>식비</option><option>교통</option><option>쇼핑</option><option>관광</option><option>숙박</option><option>기타</option></select></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">저장</button></div></form>`,()=>{
-    const form=$('#expenseForm'); $('[data-sheet-cancel]').onclick=closeSheet; form.onsubmit=e=>{e.preventDefault();const fd=new FormData(form);state.expenses.push({id:uid('exp'),title:String(fd.get('title')),vnd:Number(rawDigits(fd.get('vnd'))),krw:Number(rawDigits(fd.get('krw'))),date:String(fd.get('date')),category:String(fd.get('category')),rate:state.exchange.rate,createdAt:new Date().toISOString()});scheduleSave();closeSheet();renderAll();toast('가계부에 기록했습니다.');};
+function updateExpenseFormPreview(form) {
+  const vndInput=$('#expenseVnd',form), krwInput=$('#expenseKrw',form); if(!vndInput)return;
+  const vnd=Number(rawDigits(vndInput.value)), krw=Math.round(vnd*Number(state.exchange.rate||0));
+  $('#expenseVndKorean',form).textContent=formatVndKorean(vnd);
+  const preview=$('#expenseKrwPreview',form); if(preview)preview.textContent=`약 ${money(krw)}`;
+  if(krwInput)krwInput.value=krw ? krw.toLocaleString('en-US') : '';
+}
+function addExpenseSheet(vnd=0,{planItem=null}={}) {
+  const initialVnd=Number(vnd)||0, today=planItem?.date||dateKeyInZone(), initialCategory=planItem?expenseCategoryForPlan(planItem.category):'식비';
+  const categoryOptions=['식비','교통','쇼핑','관광','숙박','기타'].map(category=>`<option ${category===initialCategory?'selected':''}>${category}</option>`).join('');
+  const linkedInfo=planItem?`<div class="auth-card">${icon('calendar-days')}<div><strong>${esc(planItem.name)}</strong><p>${esc(formatDate(planItem.date))} · ${esc(planItem.category||'기타')} 일정에 연결됩니다.</p></div></div>`:'<div class="form-field"><label for="expenseTitle">내용</label><input id="expenseTitle" name="title" placeholder="점심 식사" required></div>';
+  const scheduleFields=planItem?`<div class="form-field"><label for="expenseCategory">분류</label><select id="expenseCategory" name="category">${categoryOptions}</select></div>`:`<div class="form-grid two"><div class="form-field"><label>날짜</label>${nativeDateInput({ name:'date', value:today })}</div><div class="form-field"><label for="expenseCategory">분류</label><select id="expenseCategory" name="category">${categoryOptions}</select></div></div>`;
+  const krwField=planItem
+    ? `<div class="conversion-result expense-preview"><span>한화 약</span><strong id="expenseKrwPreview">약 0원</strong></div><input id="expenseKrw" name="krw" type="hidden">`
+    : `<div class="form-field"><label for="expenseKrw">한화</label><input id="expenseKrw" name="krw" inputmode="numeric" value="${initialVnd?Math.round(initialVnd*Number(state.exchange.rate||0)).toLocaleString('en-US'):''}"></div>`;
+  openSheet('지출 기록', 'TRAVEL BUDGET', `<form id="expenseForm" class="form-grid">${linkedInfo}<div class="form-grid two"><div class="form-field"><label for="expenseVnd">베트남 동</label><div class="money-input-wrap"><input id="expenseVnd" name="vnd" inputmode="numeric" autocomplete="off" value="${initialVnd?formatNumberInput(initialVnd):''}" placeholder="200,000" required><span class="currency-unit">VND</span></div><p id="expenseVndKorean" class="money-korean">0 동</p></div>${krwField}</div>${planItem?'<p class="helper-text">일정에 연결된 실제 지출입니다. 한화는 현재 환율로 자동 계산됩니다.</p>':''}${scheduleFields}<p id="expenseFormError" class="form-error" role="alert"></p><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="submit" class="primary-btn">저장</button></div></form>`,()=>{
+    const form=$('#expenseForm'), amountInput=$('#expenseVnd'), error=$('#expenseFormError');
+    $('[data-sheet-cancel]').onclick=closeSheet;
+    amountInput.addEventListener('input',()=>{amountInput.value=formatNumberInput(amountInput.value);updateExpenseFormPreview(form);error.textContent='';});
+    updateExpenseFormPreview(form);
+    form.onsubmit=e=>{e.preventDefault();const fd=new FormData(form), amount=Number(rawDigits(fd.get('vnd')));if(!amount){error.textContent='지출 금액을 입력하세요.';return;}const convertedKrw=Math.round(amount*Number(state.exchange.rate||0)), enteredKrw=Number(rawDigits(fd.get('krw'))), expense={id:uid('exp'),planItemId:planItem?.id||null,title:planItem?planItem.name:String(fd.get('title')||'').trim(),vnd:amount,krw:planItem?convertedKrw:(enteredKrw||convertedKrw),date:planItem?.date||String(fd.get('date')||today),category:String(fd.get('category')||'기타'),rate:state.exchange.rate,createdAt:new Date().toISOString()};if(!expense.title){error.textContent='내용을 입력하세요.';return;}state.expenses.push(expense);scheduleSave();closeSheet();renderAll();toast('가계부에 기록했습니다.');};
   });
+}
+function confirmPlanItemRemoval(item) {
+  const linkedCount=expensesForPlanItem(item.id).length;
+  openSheet('일정 삭제','CONFIRM',`<div class="auth-card">${icon('trash-2')}<div><strong>${esc(item.name)}</strong><p>이 일정을 삭제할까요? 삭제한 일정은 되돌릴 수 없습니다.${linkedCount?`<br>연결된 지출 ${linkedCount}건은 가계부에 남습니다.`:''}</p></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="button" class="danger-btn" id="confirmPlanDelete">삭제</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#confirmPlanDelete').onclick=()=>{state.days.forEach(day=>{day.items=day.items.filter(plan=>plan.id!==item.id);});scheduleSave();closeSheet();renderAll();toast(linkedCount?'일정을 삭제했습니다. 지출 기록은 가계부에 남아 있습니다.':'일정을 삭제했습니다.');};});
+}
+function confirmExpenseRemoval(expense) {
+  const linkedItem=findPlanItem(expense.planItemId), title=expense.title||expense.category||'지출';
+  openSheet('지출 기록 삭제','CONFIRM',`<div class="auth-card">${icon('trash-2')}<div><strong>${esc(title)}</strong><p>${Number(expense.vnd||0).toLocaleString('ko-KR')} VND · ${money(expense.krw)}<br>${esc(linkedItem?`${linkedItem.name} 일정에 연결됨`:expense.planItemId?'연결된 일정 없음':'일반 지출')}<br>이 지출 기록을 삭제할까요?</p></div></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button type="button" class="danger-btn" id="confirmExpenseDelete">삭제</button></div>`,()=>{$('[data-sheet-cancel]').onclick=closeSheet;$('#confirmExpenseDelete').onclick=()=>{state.expenses=state.expenses.filter(item=>item.id!==expense.id);scheduleSave();closeSheet();renderAll();toast('지출 기록을 삭제했습니다.');};});
 }
 
 function addChecklistSheet() { openSheet('체크리스트 추가','PREP',`<form id="checkForm" class="form-grid"><div class="form-field"><label>항목</label><input name="title" required placeholder="상비약"></div><div class="sheet-actions"><button type="button" class="secondary-btn" data-sheet-cancel>취소</button><button class="primary-btn">추가</button></div></form>`,()=>{const f=$('#checkForm');$('[data-sheet-cancel]').onclick=closeSheet;f.onsubmit=e=>{e.preventDefault();state.checklist.push({id:uid('check'),title:new FormData(f).get('title'),done:false});scheduleSave();closeSheet();renderAll();};}); }
@@ -532,11 +599,20 @@ function addDocumentSheet() { openSheet('예약 · 문서 추가','BOOKING',`<fo
 function bindEvents() {
   $$('.nav-item').forEach(b => b.addEventListener('click',()=>go(b.dataset.nav)));
   $('#quickSettingsBtn').onclick=openSettings; $('#closeSheetBtn').onclick=closeSheet; $('#sheetBackdrop').onclick=closeSheet;
-  $('#modalCancelBtn').onclick=closeModal; $('#modalBackdrop').onclick=closeModal; $('#modalConfirmBtn').onclick=()=>{ const u=pendingExternalUrl; closeModal(); if(u) window.open(u,'_blank','noopener,noreferrer'); };
+  $('#modalCancelBtn').onclick=closeModal; $('#modalBackdrop').onclick=closeModal; $('#modalConfirmBtn').onclick=()=>{ const u=pendingExternalUrl, mode=pendingExternalMode; closeModal(); if(u) mode==='same-window' ? window.location.assign(u) : window.open(u,'_blank','noopener,noreferrer'); };
   $('#addPlanItemBtn').onclick=()=>openPlanEditor(); $('#useLocationBtn').onclick=useCurrentLocation;
   $('#openNextMapBtn').onclick=()=>{const d=getTodayTripDay(), n=findNextItem(d); if(n) openPlaceMap(n); else openCityMap();};
   $('#dayTabs').addEventListener('click',e=>{const b=e.target.closest('[data-day-id]');if(!b)return;state.settings.activeDayId=b.dataset.dayId;scheduleSave({sync:false});renderPlan();createIcons();});
-  $('#planList').addEventListener('click',e=>{const card=e.target.closest('[data-item-id]');const btn=e.target.closest('[data-action]');if(!card||!btn)return;const day=activeDay(),idx=day.items.findIndex(i=>i.id===card.dataset.itemId),item=day.items[idx];if(btn.dataset.action==='edit')openPlanEditor(item);if(btn.dataset.action==='up'&&idx>0){[day.items[idx-1],day.items[idx]]=[day.items[idx],day.items[idx-1]];scheduleSave();renderPlan();createIcons();}});
+  $('#togglePlanOrderBtn').onclick=()=>{planReorderMode=!planReorderMode;renderPlan();createIcons();toast(planReorderMode?'순서 변경 모드가 켜졌습니다.':'순서 변경을 완료했습니다.');};
+  $('#planList').addEventListener('click',e=>{
+    const itemEl=e.target.closest('[data-item-id]'), btn=e.target.closest('[data-action]'); if(!itemEl||!btn)return;
+    const day=activeDay(), idx=day.items.findIndex(i=>i.id===itemEl.dataset.itemId), item=day.items[idx]; if(!item)return;
+    if(btn.dataset.action==='expense') addExpenseSheet(0,{planItem:{...item,date:day.date}});
+    if(btn.dataset.action==='edit') openPlanEditor(item);
+    if(btn.dataset.action==='delete') confirmPlanItemRemoval(item);
+    if(btn.dataset.action==='up'&&idx>0){[day.items[idx-1],day.items[idx]]=[day.items[idx],day.items[idx-1]];scheduleSave();renderPlan();createIcons();}
+    if(btn.dataset.action==='down'&&idx<day.items.length-1){[day.items[idx+1],day.items[idx]]=[day.items[idx],day.items[idx+1]];scheduleSave();renderPlan();createIcons();}
+  });
   $('#refreshRoutesBtn').onclick=refreshRoutes; $('#recommendRouteBtn').onclick=recommendRoute;
   $('#placeSearchForm').onsubmit=e=>{e.preventDefault();const q=$('#placeSearchInput').value.trim();if(q)searchPlaces(q);};
   $('#placeSearchResults').addEventListener('click',e=>{const card=e.target.closest('[data-place-id]'),btn=e.target.closest('[data-action]');if(!card||!btn)return;const places=JSON.parse($('#placeSearchResults').dataset.results||'[]'),p=places.find(x=>x.id===card.dataset.placeId);if(!p)return;if(btn.dataset.action==='save'){if(!state.favorites.some(f=>f.placeId===p.id))state.favorites.push({id:uid('fav'),placeId:p.id,name:p.name,category:'기타'});scheduleSave();renderSaved();createIcons();toast('가고 싶은 곳에 저장했습니다.');}else openPlanEditor(null,{name:p.name,placeId:p.id});});
@@ -544,9 +620,11 @@ function bindEvents() {
   $('#vndInput').addEventListener('input',e=>{const pos=e.target.selectionStart;e.target.value=formatNumberInput(e.target.value);updateCurrency();});
   $('#quickAmounts').addEventListener('click',e=>{const b=e.target.closest('[data-vnd]');if(!b)return;$('#vndInput').value=Number(b.dataset.vnd).toLocaleString();updateCurrency();});
   $('#refreshRateBtn').onclick=refreshExchange; $('#refreshWeatherBtn').onclick=()=>refreshWeather({announce:true}); $('#addExpenseFromCalcBtn').onclick=()=>{const v=Number(rawDigits($('#vndInput').value));if(!v)return toast('베트남 동 금액을 입력하세요.');addExpenseSheet(v);};
+  $('#moneyDisplayToggle').addEventListener('click',e=>{const button=e.target.closest('[data-money-display]');if(!button)return;state.settings.moneyDisplay=button.dataset.moneyDisplay;scheduleSave();renderExpenses();});
+  $('#expenseList').addEventListener('click',e=>{const button=e.target.closest('[data-action="remove-expense"]'),row=e.target.closest('[data-expense-id]');if(!button||!row)return;const expense=state.expenses.find(item=>item.id===row.dataset.expenseId);if(expense)confirmExpenseRemoval(expense);});
   $('#addChecklistBtn').onclick=addChecklistSheet; $('#checklist').addEventListener('change',e=>{const row=e.target.closest('[data-check-id]');if(!row)return;const c=state.checklist.find(x=>x.id===row.dataset.checkId);c.done=e.target.checked;scheduleSave();renderChecklist();}); $('#checklist').addEventListener('click',e=>{const b=e.target.closest('[data-action="remove"]');if(!b)return;const row=b.closest('[data-check-id]');const item=state.checklist.find(x=>x.id===row.dataset.checkId);if(item)confirmChecklistRemoval(item);});
   $('#addDocumentBtn').onclick=addDocumentSheet; $('#documentsList').addEventListener('click',e=>{const b=e.target.closest('[data-action="open"]'),row=e.target.closest('[data-doc-id]');if(!b||!row)return;const d=state.documents.find(x=>x.id===row.dataset.docId);confirmExternal(d.title,d.url);});
-  $('#externalTools').addEventListener('click',e=>{const b=e.target.closest('[data-url]');if(b)confirmExternal(b.dataset.name,b.dataset.url);});
+  $('#externalTools').addEventListener('click',e=>{const b=e.target.closest('[data-url]');if(!b)return;const message=b.dataset.name==='Grab'?'Grab 앱이 설치되어 있으면 앱으로 연결하고, 설치되어 있지 않으면 공식 Grab 웹페이지가 열립니다.':undefined;confirmExternal(b.dataset.name,b.dataset.url,message,{mode:b.dataset.openMode||'new-tab'});});
   $('#syncNowBtn').onclick=pullSync; $('#inviteMemberBtn').onclick=inviteMember; $('#joinFamilyBtn').onclick=joinFamilyByCode; $('#shareLocationBtn').onclick=shareMyLocation;
   $('#familyLocations').addEventListener('click',e=>{const row=e.target.closest('[data-lat]'),b=e.target.closest('[data-action="location-map"]');if(!row||!b)return;const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.dataset.lat+','+row.dataset.lng)}`;confirmExternal('Google Maps',url,'가족이 공유한 위치를 Google Maps에서 확인합니다.');});
   $('#membersList').addEventListener('click',e=>{const row=e.target.closest('[data-member-id]'),b=e.target.closest('[data-action]');if(!row||!b)return;if(b.dataset.action==='role')changeRole(row.dataset.memberId);if(b.dataset.action==='name')changeMemberName(row.dataset.memberId);});
