@@ -28,7 +28,7 @@ export function defaultState() {
     documents: [],
     members: [{ id: 'local-owner', name: '제작자', role: 'OWNER' }],
     exchange: { rate: 0.0523, day: '', source: 'offline-default' },
-    settings: { theme: 'warm-ivory', accent: 'sand', activeDayId: null },
+    settings: { theme: 'warm-ivory', accent: 'sand', activeDayId: null, moneyDisplay: 'compact' },
     updatedAt: new Date().toISOString()
   };
 }
@@ -52,8 +52,15 @@ export function normalizeState(state) {
   state.trip ||= {};
   state.trip.timeZone ||= DEFAULT_TRIP_TIME_ZONE;
   state.days ||= [];
+  state.favorites ||= [];
+  state.expenses ||= [];
+  state.checklist ||= [];
+  state.documents ||= [];
   state.members ||= [];
-  state.settings ||= { theme: 'warm-ivory', accent: 'sand', activeDayId: null };
+  state.exchange ||= { rate: 0.0523, day: '', source: 'offline-default' };
+  state.settings ||= { theme: 'warm-ivory', accent: 'sand', activeDayId: null, moneyDisplay: 'compact' };
+  state.settings.moneyDisplay ||= 'compact';
+  if (!['compact','detail'].includes(state.settings.moneyDisplay)) state.settings.moneyDisplay = 'compact';
   const expectedDays = buildDays(state.trip.startDate, state.trip.endDate);
   if (state.days.length === expectedDays.length && state.days[0]?.date !== expectedDays[0]?.date) {
     state.days = expectedDays.map((day, index) => ({ ...state.days[index], date: day.date }));

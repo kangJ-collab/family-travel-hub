@@ -124,18 +124,29 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .day-tab__date { color: var(--muted); font-size: .7rem; font-weight: 700; }
 .day-tab.is-active .day-tab__date { color: inherit; opacity: .82; }
 .day-tab.is-active { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
-.plan-list { display: grid; gap: 10px; }
-.plan-item { background: var(--surface); border: 1px solid var(--line); border-radius: 17px; padding: 14px; display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 10px; align-items: start; }
-.plan-item__index { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--surface-2); font-weight: 850; }
-.plan-item__main { min-width: 0; }
-.plan-item__name { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
-.plan-item__meta { margin: 5px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; color: var(--muted); font-size: .78rem; }
-.plan-item__meta span { display: inline-flex; align-items: center; gap: 4px; }
-.plan-item__meta svg { width: 14px; height: 14px; }
-.plan-item__actions { display: flex; gap: 4px; }
-.plan-item__actions button { width: 34px; height: 34px; border-radius: 10px; border: 0; background: transparent; display: grid; place-items: center; }
-.plan-item__actions svg { width: 17px; height: 17px; }
-.route-between { margin: -1px 0 0 50px; display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: .75rem; padding: 0 0 1px; }
+.plan-list { display: grid; gap: 10px; min-width: 0; }
+.plan-list > * { min-width: 0; }
+.plan-item.schedule-card { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.plan-item.schedule-card.has-expense { border-left: 3px solid var(--accent); padding-left: 12px; }
+.schedule-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-width: 0; }
+.schedule-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.schedule-index { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; background: var(--surface-2); font-weight: 850; }
+.schedule-name { min-width: 0; margin: 0; font-size: 1rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expense-btn { flex: 0 0 auto; min-height: 36px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.schedule-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }
+.schedule-time { min-width: 0; color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.schedule-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.schedule-actions button { position: relative; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; display: grid; place-items: center; color: var(--muted); cursor: pointer; }
+.schedule-actions button::before { content: ""; position: absolute; inset: -6px; }
+.schedule-actions button:hover, .schedule-actions button:focus-visible { background: var(--surface-2); color: var(--text); outline: none; }
+.schedule-actions svg { width: 17px; height: 17px; }
+.plan-reorder-controls { display: flex; align-items: center; gap: 7px; padding: 6px 4px 1px; color: var(--muted); font-size: .75rem; }
+.plan-reorder-controls span { flex: 1 1 auto; min-width: 0; }
+.plan-reorder-controls button { min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); display: inline-flex; align-items: center; gap: 5px; font-size: .75rem; font-weight: 750; cursor: pointer; }
+.plan-reorder-controls button:disabled { opacity: .42; }
+.plan-reorder-controls svg { width: 15px; height: 15px; }
+.plan-actions .secondary-btn.is-active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.route-between { margin: -1px 0 0 14px; display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: .75rem; padding: 0 0 1px; }
 .route-between span { display: inline-flex; align-items: center; gap: 4px; }
 .route-between svg { width: 14px; height: 14px; }
 
@@ -162,6 +173,28 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .quick-amounts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-top: 12px; }
 .quick-amount { min-height: 40px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 750; }
 .summary-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 14px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.budget-summary { align-items: center; gap: 12px; }
+.budget-summary > div { display: grid; gap: 3px; min-width: 0; }
+.budget-summary > div > span { color: var(--muted); font-size: .82rem; }
+.budget-summary > div > strong { font-size: 1.15rem; }
+.budget-summary > strong { flex: 0 0 auto; color: var(--accent); font-size: .92rem; }
+.segmented-control { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; margin-top: 12px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.segmented-control button { min-height: 36px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-size: .8rem; font-weight: 800; cursor: pointer; }
+.segmented-control button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 4px rgba(46,39,30,.08); }
+.expense-day-group { min-width: 0; margin-top: 14px; }
+.expense-day-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; min-width: 0; padding: 2px 2px 0; }
+.expense-day-heading h4 { min-width: 0; margin: 2px 0 0; font-size: .9rem; }
+.expense-day-total { flex: 0 0 auto; display: grid; justify-items: end; gap: 2px; }
+.expense-day-total strong { color: var(--accent); font-size: .86rem; }
+.expense-day-total small { color: var(--muted); font-size: .72rem; }
+.expense-day-group .simple-list { margin-top: 8px; }
+.expense-row { align-items: flex-start; gap: 10px; }
+.expense-row__copy { min-width: 0; flex: 1 1 auto; }
+.expense-row h4 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expense-row__meta { display: block; margin-top: 4px; color: var(--muted); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expense-row__amount { display: block; margin-top: 5px; color: var(--text); font-size: .78rem; font-weight: 750; }
+.expense-row__amount--detail { font-variant-numeric: tabular-nums; }
+.expense-delete-btn { flex: 0 0 auto; margin-top: -3px; }
 .check-list { display: grid; gap: 7px; margin-top: 12px; }
 .check-row { display: grid; grid-template-columns: 28px minmax(0,1fr) 36px; align-items: center; gap: 8px; min-height: 48px; border-bottom: 1px solid var(--line); }
 .check-row:last-child { border-bottom: 0; }
@@ -239,9 +272,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .tool-link-grid { grid-template-columns: 1fr 1fr; }
   .form-grid.two { display: flex; flex-direction: column; }
   .form-grid.two > * { width: 100%; flex: 0 0 auto; }
-  .plan-item { grid-template-columns: 32px minmax(0,1fr) auto; padding: 12px; }
-  .plan-item__index { width: 30px; height: 30px; }
-  .route-between { margin-left: 44px; }
+  .route-between { margin-left: 12px; }
 }
 @media (max-width: 350px) {
   .main-content { padding-left: 12px; padding-right: 12px; }
