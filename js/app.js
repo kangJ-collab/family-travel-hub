@@ -119,6 +119,32 @@ function expenseAmountText(expense) {
     ? `${Number(expense.vnd || 0).toLocaleString('ko-KR')} VND · ₩${Math.round(Number(expense.krw || 0)).toLocaleString('ko-KR')}`
     : formatVndKorean(expense.vnd);
 }
+function hasCoordinates(place) {
+  if (place?.lat === null || place?.lat === undefined || place?.lat === '' || place?.lng === null || place?.lng === undefined || place?.lng === '') return false;
+  const lat=Number(place?.lat),lng=Number(place?.lng);
+  return Number.isFinite(lat)&&lat>=-90&&lat<=90&&Number.isFinite(lng)&&lng>=-180&&lng<=180;
+}
+function locationFields(place) {
+  if (!hasCoordinates(place)) return {};
+  return { lat:Number(place.lat), lng:Number(place.lng), osmType:String(place.osmType||''), osmId:String(place.osmId||''), address:String(place.address||''), locationSource:String(place.locationSource||'nominatim'), locationResolution:'resolved' };
+}
+function applyLocation(target,place,source='nominatim') {
+  Object.assign(target,locationFields({...place,locationSource:source}));
+  return target;
+}
+function sameLocation(left,right) {
+  if (left?.osmType&&left?.osmId&&right?.osmType&&right?.osmId) return left.osmType===right.osmType&&String(left.osmId)===String(right.osmId);
+  return hasCoordinates(left)&&hasCoordinates(right)&&Math.abs(Number(left.lat)-Number(right.lat))<0.000001&&Math.abs(Number(left.lng)-Number(right.lng))<0.000001;
+}
+function placeSearchBias() { return { lat:state.trip.lat, lng:state.trip.lng, country:state.trip.country }; }
+async function resolveLegacyLocation(record) {
+  if (hasCoordinates(record)) return true;
+  if (!record?.name || !getConfig().deviceToken) return false;
+  const {places=[]}=await api.searchPlaces(record.name,placeSearchBias()), match=places[0];
+  if (!match) { record.locationResolution='not-found'; return false; }
+  applyLocation(record,match,'nominatim-migrated');
+  return true;
+}
 
 function applyTheme() {
   const { theme = 'warm-ivory', accent = 'sand' } = state.settings;
@@ -212,7 +238,7 @@ function renderPlan() {
           <button class="expense-btn" data-action="expense" type="button">지출 기록</button>
         </div>
         <div class="schedule-meta">
-          <div class="schedule-time">${esc(`${fmtTime(item.time)} · ${item.category || '기타'}`)}</div>
+          <div class="schedule-time">${esc(`${fmtTime(item.time)} · ${item.category || '기타'}${hasCoordinates(item)?'':' · 위치 재선택 필요'}`)}</div>
           <div class="schedule-actions">
             <button class="edit-btn" data-action="edit" type="button" aria-label="일정 수정">${icon('pencil')}</button>
             <button class="delete-btn" data-action="delete" type="button" aria-label="일정 삭제">${icon('trash-2')}</button>
@@ -232,7 +258,7 @@ function renderSaved() {
   const el = $('#favoritesList');
   el.innerHTML = state.favorites.length ? state.favorites.map(f => `
     <article class="result-card" data-fav-id="${f.id}">
-      <div class="result-card__top"><div><h4>${esc(f.name)}</h4><p>${esc(f.category || '저장한 장소')}</p></div>${icon(categoryIcon(f.category))}</div>
+      <div class="result-card__top"><div><h4>${esc(f.name)}</h4><p>${esc(hasCoordinates(f)?(f.address||f.category||'저장한 장소'):'위치 재선택 필요')}</p></div>${icon(categoryIcon(f.category))}</div>
       <div class="card-actions">
         <button class="secondary-btn" data-action="add-plan">${icon('calendar-plus')}일정에 추가</button>
         <button class="secondary-btn" data-action="map">${icon('map')}지도</button>
@@ -397,7 +423,8 @@ function confirmExternal(name, url, message, { mode = 'new-tab' } = {}) {
 function closeModal() { $('#modalBackdrop').hidden = true; $('#confirmModal').hidden = true; pendingExternalUrl = null; pendingExternalMode = 'new-tab'; }
 
 function openPlanEditor(item = null, prefill = {}) {
-  const day = activeDay(); const data = item || { name: prefill.name || '', time: '', category: prefill.category || '기타', locked: false, placeId: prefill.placeId || '', note: '' };
+  const day = activeDay(); const data = item || { name: prefill.name || '', time: '', category: prefill.category || '기타', locked: false, note: '', placeId:prefill.placeId||'', address:prefill.address||'', ...locationFields(prefill) };
+  const locationReady=hasCoordinates(data), locationSummary=locationReady?(data.address||`${Number(data.lat).toFixed(5)}, ${Number(data.lng).toFixed(5)}`):(data.placeId?'기존 Google 장소입니다. 이름으로 OSM 위치를 다시 찾아주세요.':'경로 계산에 사용할 위치가 없습니다.');
   openSheet(item ? '일정 편집' : '일정 추가', `DAY ${dayNumber(day)} · ${formatDate(day.date)}`, `
     <form id="planEditForm" class="form-grid">
       <div class="form-field"><label for="planName">장소 또는 일정명</label><input id="planName" name="name" value="${esc(data.name)}" required placeholder="포나가르 사원"></div>
@@ -406,15 +433,37 @@ function openPlanEditor(item = null, prefill = {}) {
         <div class="form-field"><label for="planTime">시간 · 선택사항</label>${nativeDateInput({ id:'planTime', name:'time', type:'time', value:data.time || '' })}</div>
       </div>
       <div class="form-field"><label for="planCategory">종류</label><select id="planCategory" name="category">${['호텔','카페','식당','관광','마사지','쇼핑','공항','기타'].map(c=>`<option ${c===data.category?'selected':''}>${c}</option>`).join('')}</select></div>
-      <div class="form-field"><label for="planPlaceId">Google Place ID · 선택사항</label><input id="planPlaceId" name="placeId" value="${esc(data.placeId || '')}" placeholder="Places 검색으로 자동 입력"></div>
+      <div class="form-field plan-location-field">
+        <label>경로 위치 · 선택사항</label>
+        <input type="hidden" name="lat" value="${locationReady?esc(data.lat):''}"><input type="hidden" name="lng" value="${locationReady?esc(data.lng):''}">
+        <input type="hidden" name="osmType" value="${esc(data.osmType||'')}"><input type="hidden" name="osmId" value="${esc(data.osmId||'')}">
+        <input type="hidden" name="address" value="${esc(data.address||'')}"><input type="hidden" name="locationSource" value="${esc(data.locationSource||'')}">
+        <div id="planLocationStatus" class="location-status ${locationReady?'is-ready':'is-missing'}">${icon(locationReady?'map-pin':'map-pin-off')}<span>${esc(locationSummary)}</span></div>
+        <button id="findPlanLocationBtn" class="secondary-btn location-find-btn" type="button">${icon('search')}<span>일정명으로 OSM 위치 찾기</span></button>
+        <div id="planLocationResults" class="location-picker" aria-live="polite"></div>
+        <p class="helper-text">위치가 없어도 일정은 저장할 수 있지만 이동시간과 동선 추천은 사용할 수 없습니다.</p>
+      </div>
       <div class="form-field"><label for="planNote">메모</label><textarea id="planNote" name="note" placeholder="예약번호, 주문할 메뉴 등">${esc(data.note || '')}</textarea></div>
       <label class="switch-row"><span>동선 추천에서 위치 잠금</span><input type="checkbox" name="locked" ${data.locked?'checked':''}></label>
       <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button class="primary-btn" type="submit">저장</button></div>
     </form>`, () => {
-      const form = $('#planEditForm');
+      const form = $('#planEditForm'), findButton=$('#findPlanLocationBtn',form), results=$('#planLocationResults',form), status=$('#planLocationStatus',form);
+      const chooseLocation = place => {
+        form.elements.lat.value=place.lat;form.elements.lng.value=place.lng;form.elements.osmType.value=place.osmType||'';form.elements.osmId.value=place.osmId||'';form.elements.address.value=place.address||'';form.elements.locationSource.value='nominatim';
+        status.className='location-status is-ready';status.innerHTML=`${icon('map-pin')}<span>${esc(place.address||place.name)}</span>`;results.innerHTML='';results.dataset.places='[]';createIcons();
+      };
+      findButton.onclick=async()=>{
+        const query=String(form.elements.name.value||'').trim();if(query.length<2){results.innerHTML='<p class="form-error">장소 또는 일정명을 두 글자 이상 입력하세요.</p>';return;}
+        findButton.disabled=true;results.innerHTML='<p class="helper-text">OpenStreetMap에서 위치를 찾는 중입니다.</p>';
+        try { const {places=[]}=await api.searchPlaces(query,placeSearchBias());results.dataset.places=JSON.stringify(places);results.innerHTML=places.length?places.map(place=>`<button type="button" class="location-option" data-location-key="${esc(place.id)}"><strong>${esc(place.name)}</strong><span>${esc(place.address||'')}</span></button>`).join(''):'<p class="form-error">검색 결과가 없습니다. 이름을 더 정확히 입력해보세요.</p>'; }
+        catch(error){results.innerHTML=`<p class="form-error">${esc(error.message)}</p>`;}
+        finally{findButton.disabled=false;}
+      };
+      results.onclick=event=>{const button=event.target.closest('[data-location-key]');if(!button)return;const places=JSON.parse(results.dataset.places||'[]'),place=places.find(value=>value.id===button.dataset.locationKey);if(place)chooseLocation(place);};
       const submit = (e) => {
         e.preventDefault(); const fd = new FormData(form); const targetDay = state.days.find(d => d.date === fd.get('date')) || day;
-        const payload = { ...(item || {}), id: item?.id || uid('plan'), name: String(fd.get('name')).trim(), time: String(fd.get('time')||''), category: String(fd.get('category')), placeId: String(fd.get('placeId')||'').trim(), note: String(fd.get('note')||''), locked: fd.get('locked') === 'on', updatedAt: new Date().toISOString() };
+        const rawLat=fd.get('lat'),rawLng=fd.get('lng'),lat=Number(rawLat),lng=Number(rawLng),validLocation=rawLat!==''&&rawLng!==''&&Number.isFinite(lat)&&Number.isFinite(lng)&&lat>=-90&&lat<=90&&lng>=-180&&lng<=180;
+        const payload = { ...(item || {}), id: item?.id || uid('plan'), name: String(fd.get('name')).trim(), time: String(fd.get('time')||''), category: String(fd.get('category')), note: String(fd.get('note')||''), locked: fd.get('locked') === 'on', lat:validLocation?lat:null, lng:validLocation?lng:null, osmType:validLocation?String(fd.get('osmType')||''):'', osmId:validLocation?String(fd.get('osmId')||''):'', address:validLocation?String(fd.get('address')||''):'', locationSource:validLocation?String(fd.get('locationSource')||'nominatim'):'', locationResolution:validLocation?'resolved':(item?.placeId?'legacy-google':'missing'), updatedAt: new Date().toISOString() };
         if (item) state.days.forEach(d => d.items = d.items.filter(x => x.id !== item.id));
         targetDay.items.push(payload); state.settings.activeDayId = targetDay.id;
         sortByTimeStable(targetDay.items); scheduleSave(); closeSheet(); renderAll(); toast('일정을 저장했습니다.');
@@ -440,7 +489,7 @@ function openSettings() {
       <div class="form-grid two"><div class="form-field"><label>테마</label><select name="theme">${[['system','시스템'],['light','라이트'],['dark','다크'],['ivory','아이보리'],['warm-ivory','웜 아이보리']].map(([v,l])=>`<option value="${v}" ${state.settings.theme===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="form-field"><label>강조 색상</label><select name="accent">${[['blue','Blue'],['green','Green'],['sand','Sand'],['coral','Coral'],['purple','Purple']].map(([v,l])=>`<option value="${v}" ${state.settings.accent===v?'selected':''}>${l}</option>`).join('')}</select></div></div>
       <div class="auth-card">${icon(cfg.deviceToken ? 'shield-check' : 'shield')}<div><strong>${cfg.deviceToken ? `가족 인증 연결됨 · ${roleLabel}` : '가족 인증 연결 전'}</strong><p>${cfg.deviceToken ? '이 기기의 인증 토큰이 API 요청에 자동으로 사용됩니다. 직접 입력하거나 복사할 필요가 없습니다. 브라우저 데이터를 삭제하면 새 초대가 필요합니다.' : 'OWNER 설정키로 가족 공유를 시작하면 이 기기 전용 인증 토큰이 자동 발급·저장됩니다.'}</p></div></div>
       ${cfg.deviceToken ? '' : '<div class="form-field"><label>OWNER 설정키</label><input type="password" name="ownerKey" autocomplete="off" placeholder="Cloudflare에 등록한 설정키 입력"><p class="helper-text">Cloudflare Worker Secret에 등록한 값과 똑같이 입력하세요. 가족 초대 링크에는 포함되지 않습니다.</p></div>'}
-      <p class="helper-text">Google Places/Routes API 키와 OWNER 설정키는 프런트엔드 소스에 저장하지 않습니다.</p>
+      <p class="helper-text">장소 검색과 경로는 API 키가 필요 없는 OpenStreetMap 공개 서비스를 사용합니다. OWNER 설정키는 프런트엔드 소스에 저장하지 않습니다.</p>
       <p id="settingsError" class="form-error" role="alert"></p>
       <div class="sheet-actions"><button class="secondary-btn" type="button" data-sheet-cancel>취소</button><button id="saveSettingsBtn" class="primary-btn" type="submit">${cfg.deviceToken ? '설정 저장' : '저장 및 가족 연결'}</button></div>
     </form>`, () => {
@@ -475,10 +524,10 @@ function openSettings() {
 async function searchPlaces(query) {
   const resultEl = $('#placeSearchResults'); resultEl.innerHTML = '<div class="empty-state">검색 중...</div>';
   try {
-    const { places = [] } = await api.searchPlaces(query);
-    resultEl.innerHTML = places.length ? places.map(p => `<article class="result-card" data-place-id="${esc(p.id)}"><div class="result-card__top"><div><h4>${esc(p.name)}</h4><p>${esc(p.address || '')}</p></div>${icon('map-pin')}</div><div class="card-actions"><button class="secondary-btn" data-action="save">${icon('bookmark-plus')}저장</button><button class="primary-btn" data-action="plan">${icon('calendar-plus')}일정에 추가</button></div></article>`).join('') : '<div class="empty-state">검색 결과가 없습니다.</div>';
+    const { places = [] } = await api.searchPlaces(query,placeSearchBias());
+    resultEl.innerHTML = places.length ? places.map(p => `<article class="result-card" data-place-key="${esc(p.id)}"><div class="result-card__top"><div><h4>${esc(p.name)}</h4><p>${esc(p.address || '')}</p></div>${icon('map-pin')}</div><div class="card-actions"><button class="secondary-btn" data-action="save">${icon('bookmark-plus')}저장</button><button class="primary-btn" data-action="plan">${icon('calendar-plus')}일정에 추가</button></div></article>`).join('') : '<div class="empty-state">검색 결과가 없습니다. 장소의 현지명이나 영문명을 함께 입력해보세요.</div>';
     resultEl.dataset.results = JSON.stringify(places); createIcons();
-  } catch(err) { resultEl.innerHTML = `<div class="empty-state">${esc(err.message)}<br>설정에서 Worker와 가족 공유 여행을 연결하세요.</div>`; }
+  } catch(err) { resultEl.innerHTML = `<div class="empty-state">${esc(err.message)}<br>가족 인증 연결과 인터넷 상태를 확인하세요.</div>`; }
 }
 
 async function refreshExchange() {
@@ -498,25 +547,31 @@ async function refreshWeather({ announce = false } = {}) {
 
 async function refreshRoutes() {
   const day = activeDay(); if (!day || day.items.length < 2) return toast('이동시간을 계산할 일정이 부족합니다.');
-  let done=0;
+  let done=0,resolved=0,lastError=null;
   for (let i=0;i<day.items.length-1;i++) {
-    const a=day.items[i], b=day.items[i+1]; if (!a.placeId || !b.placeId) continue;
+    const a=day.items[i], b=day.items[i+1];
     try {
-      const [drive,walk] = await Promise.all([api.route({placeId:a.placeId},{placeId:b.placeId},'DRIVE'), api.route({placeId:a.placeId},{placeId:b.placeId},'WALK')]);
-      a.routeToNext={ driveSec:drive.durationSeconds, walkSec:walk.durationSeconds, driveText:`차량 / Grab ${minutesText(drive.durationSeconds)}`, walkText:`도보 ${minutesText(walk.durationSeconds)}`, updatedAt:new Date().toISOString() }; done++;
-    } catch(err) { if (err.status===401) return toast('가족 공유 여행 연결 후 Google 경로를 사용할 수 있습니다.'); }
+      if(!hasCoordinates(a)&&await resolveLegacyLocation(a))resolved++;
+      if(!hasCoordinates(b)&&await resolveLegacyLocation(b))resolved++;
+      if(!hasCoordinates(a)||!hasCoordinates(b))continue;
+      const drive=await api.route({lat:a.lat,lng:a.lng},{lat:b.lat,lng:b.lng},'DRIVE');
+      const walk=await api.route({lat:a.lat,lng:a.lng},{lat:b.lat,lng:b.lng},'WALK');
+      a.routeToNext={ driveSec:drive.durationSeconds, walkSec:walk.durationSeconds, driveText:`차량 / Grab ${minutesText(drive.durationSeconds)}`, walkText:`도보 ${minutesText(walk.durationSeconds)}`, source:'osrm', updatedAt:new Date().toISOString() }; done++;
+    } catch(err) { if (err.status===401) return toast('가족 공유 여행 연결 후 경로를 사용할 수 있습니다.'); lastError=err; }
   }
-  scheduleSave(); renderAll(); toast(done ? `${done}개 구간의 이동시간을 갱신했습니다.` : 'Place ID가 있는 일정이 필요합니다.');
+  scheduleSave(); renderAll(); toast(done ? `${done}개 구간의 이동시간을 갱신했습니다.${resolved?` 기존 장소 ${resolved}곳의 OSM 위치도 연결했습니다.`:''}${lastError?' 일부 구간은 계산하지 못했습니다.':''}` : (lastError?.message || 'OSM 위치가 연결된 일정이 필요합니다. 일정 편집에서 위치를 찾아주세요.'));
 }
 
 async function recommendRoute() {
   const day = activeDay(); if (!day || day.items.length < 3) return toast('동선 추천은 장소가 3개 이상일 때 사용할 수 있습니다.');
-  if (day.items.some(i=>!i.placeId)) return toast('Google Places로 저장된 장소만 동선 추천에 사용할 수 있습니다.');
   try {
-    const r = await api.optimize({ items: day.items.map(i=>({ id:i.id, placeId:i.placeId, locked:Boolean(i.locked) })) });
+    let resolvedAny=false;for(const item of day.items)if(!hasCoordinates(item)&&await resolveLegacyLocation(item))resolvedAny=true;
+    if(resolvedAny)scheduleSave();
+    if(day.items.some(item=>!hasCoordinates(item))){scheduleSave();renderAll();return toast('위치를 찾지 못한 일정이 있습니다. 일정 편집에서 OSM 위치를 선택해주세요.');}
+    const r = await api.optimize({ items: day.items.map(i=>({ id:i.id, lat:i.lat, lng:i.lng, locked:Boolean(i.locked) })) });
     if (!r.order || r.order.join('|') === day.items.map(i=>i.id).join('|')) return toast('현재 순서가 이미 효율적입니다.');
     const suggested = r.order.map(id=>day.items.find(i=>i.id===id)).filter(Boolean);
-    openSheet('추천 동선', 'ROUTE SUGGESTION', `<p class="helper-text">잠긴 일정은 기준점으로 유지하고, 그 사이 일정만 Google Routes 기준으로 재정렬합니다. 자동으로 변경하지 않습니다.</p><div class="simple-list">${suggested.map((x,i)=>`<div class="simple-row"><strong>${i+1}</strong><div style="flex:1"><h4>${esc(x.name)}</h4><small class="muted">${x.locked?'잠금 일정':'이동 가능'}</small></div></div>`).join('')}</div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel type="button">취소</button><button class="primary-btn" id="applyRouteSuggestion" type="button">이 순서로 변경</button></div>`, () => {
+    openSheet('추천 동선', 'ROUTE SUGGESTION', `<p class="helper-text">잠긴 일정은 기준점으로 유지하고, 그 사이 일정만 OSRM 차량 경로 기준으로 재정렬합니다. 자동으로 변경하지 않습니다.</p><div class="simple-list">${suggested.map((x,i)=>`<div class="simple-row"><strong>${i+1}</strong><div style="flex:1"><h4>${esc(x.name)}</h4><small class="muted">${x.locked?'잠금 일정':'이동 가능'}</small></div></div>`).join('')}</div><div class="sheet-actions"><button class="secondary-btn" data-sheet-cancel type="button">취소</button><button class="primary-btn" id="applyRouteSuggestion" type="button">이 순서로 변경</button></div>`, () => {
       $('[data-sheet-cancel]').onclick=closeSheet; $('#applyRouteSuggestion').onclick=()=>{ day.items=suggested; scheduleSave(); closeSheet(); renderAll(); toast('추천 동선을 적용했습니다.'); };
     });
   } catch(err) { toast(err.message); }
@@ -532,14 +587,14 @@ async function useCurrentLocation() {
   gpsWatchId = navigator.geolocation.watchPosition(async pos => {
     currentPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, at: Date.now() };
     const day = getTodayTripDay(), next = findNextItem(day);
-    if (!next?.placeId || Date.now() - lastLiveRouteAt < 30000) return;
+    if (!next || Date.now() - lastLiveRouteAt < 30000) return;
     lastLiveRouteAt = Date.now();
     try {
-      const [d,w]=await Promise.all([
-        api.route({lat:currentPosition.lat,lng:currentPosition.lng},{placeId:next.placeId},'DRIVE'),
-        api.route({lat:currentPosition.lat,lng:currentPosition.lng},{placeId:next.placeId},'WALK')
-      ]);
-      next.routeFromCurrent={driveText:`차량 / Grab ${minutesText(d.durationSeconds)}`,walkText:`도보 ${minutesText(w.durationSeconds)}`}; renderHome(); createIcons();
+      if(!hasCoordinates(next)&&await resolveLegacyLocation(next))scheduleSave();
+      if(!hasCoordinates(next))return;
+      const d=await api.route({lat:currentPosition.lat,lng:currentPosition.lng},{lat:next.lat,lng:next.lng},'DRIVE');
+      const w=await api.route({lat:currentPosition.lat,lng:currentPosition.lng},{lat:next.lat,lng:next.lng},'WALK');
+      next.routeFromCurrent={driveText:`차량 / Grab ${minutesText(d.durationSeconds)}`,walkText:`도보 ${minutesText(w.durationSeconds)}`,source:'osrm'}; renderHome(); createIcons();
     } catch(err){ /* GPS 자체는 유지하고 경로 실패만 무시 */ }
   }, err => { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId=null; $('#useLocationBtn span').textContent='현재 위치'; toast(`위치 확인 실패: ${err.message}`); }, { enableHighAccuracy:true, timeout:12000, maximumAge:10000 });
   toast('실시간 GPS를 시작했습니다. 다시 누르면 중지합니다.');
@@ -615,8 +670,8 @@ function bindEvents() {
   });
   $('#refreshRoutesBtn').onclick=refreshRoutes; $('#recommendRouteBtn').onclick=recommendRoute;
   $('#placeSearchForm').onsubmit=e=>{e.preventDefault();const q=$('#placeSearchInput').value.trim();if(q)searchPlaces(q);};
-  $('#placeSearchResults').addEventListener('click',e=>{const card=e.target.closest('[data-place-id]'),btn=e.target.closest('[data-action]');if(!card||!btn)return;const places=JSON.parse($('#placeSearchResults').dataset.results||'[]'),p=places.find(x=>x.id===card.dataset.placeId);if(!p)return;if(btn.dataset.action==='save'){if(!state.favorites.some(f=>f.placeId===p.id))state.favorites.push({id:uid('fav'),placeId:p.id,name:p.name,category:'기타'});scheduleSave();renderSaved();createIcons();toast('가고 싶은 곳에 저장했습니다.');}else openPlanEditor(null,{name:p.name,placeId:p.id});});
-  $('#favoritesList').addEventListener('click',e=>{const c=e.target.closest('[data-fav-id]'),b=e.target.closest('[data-action]');if(!c||!b)return;const f=state.favorites.find(x=>x.id===c.dataset.favId);if(b.dataset.action==='remove'){state.favorites=state.favorites.filter(x=>x.id!==f.id);scheduleSave();renderSaved();createIcons();}if(b.dataset.action==='add-plan')openPlanEditor(null,{name:f.name,placeId:f.placeId,category:f.category});if(b.dataset.action==='map')openPlaceMap(f);});
+  $('#placeSearchResults').addEventListener('click',e=>{const card=e.target.closest('[data-place-key]'),btn=e.target.closest('[data-action]');if(!card||!btn)return;const places=JSON.parse($('#placeSearchResults').dataset.results||'[]'),p=places.find(x=>x.id===card.dataset.placeKey);if(!p)return;if(btn.dataset.action==='save'){if(!state.favorites.some(f=>sameLocation(f,p)))state.favorites.push({id:uid('fav'),name:p.name,address:p.address,category:'기타',...locationFields(p)});scheduleSave();renderSaved();createIcons();toast('가고 싶은 곳에 저장했습니다.');}else openPlanEditor(null,{name:p.name,address:p.address,...locationFields(p)});});
+  $('#favoritesList').addEventListener('click',e=>{const c=e.target.closest('[data-fav-id]'),b=e.target.closest('[data-action]');if(!c||!b)return;const f=state.favorites.find(x=>x.id===c.dataset.favId);if(b.dataset.action==='remove'){state.favorites=state.favorites.filter(x=>x.id!==f.id);scheduleSave();renderSaved();createIcons();}if(b.dataset.action==='add-plan')openPlanEditor(null,{name:f.name,address:f.address,category:f.category,placeId:f.placeId,...locationFields(f)});if(b.dataset.action==='map')openPlaceMap(f);});
   $('#vndInput').addEventListener('input',e=>{const pos=e.target.selectionStart;e.target.value=formatNumberInput(e.target.value);updateCurrency();});
   $('#quickAmounts').addEventListener('click',e=>{const b=e.target.closest('[data-vnd]');if(!b)return;$('#vndInput').value=Number(b.dataset.vnd).toLocaleString();updateCurrency();});
   $('#refreshRateBtn').onclick=refreshExchange; $('#refreshWeatherBtn').onclick=()=>refreshWeather({announce:true}); $('#addExpenseFromCalcBtn').onclick=()=>{const v=Number(rawDigits($('#vndInput').value));if(!v)return toast('베트남 동 금액을 입력하세요.');addExpenseSheet(v);};
@@ -664,7 +719,11 @@ function bindEvents() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });
 }
 function openPlaceMap(place) {
-  const url=place.placeId ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${encodeURIComponent(place.placeId)}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}`;
+  const url=hasCoordinates(place)
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${place.lat},${place.lng}`)}`
+    : place.placeId
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${encodeURIComponent(place.placeId)}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}`;
   confirmExternal('Google Maps',url,'장소 확인을 위해 Google Maps 앱 또는 웹사이트로 이동합니다.');
 }
 function openCityMap() { const query=[state.trip.city,state.trip.country].filter(Boolean).join(', ')||'Nha Trang, Vietnam'; confirmExternal('Google Maps',`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,'등록된 다음 일정이 없어 여행지 지도를 엽니다.'); }

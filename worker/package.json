@@ -8,6 +8,6 @@
     "db:remote": "wrangler d1 execute family-travel-hub --remote --file=./schema.sql"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.127.1"
   }
 }

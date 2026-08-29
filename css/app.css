@@ -154,6 +154,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .search-box input { min-height: 42px; border: 0; outline: none; background: transparent; color: var(--text); width: 100%; }
 .search-submit { min-height: 38px; padding: 0 12px; border-radius: 11px; background: var(--accent); color: var(--accent-contrast); font-weight: 800; }
 .helper-text { color: var(--muted); font-size: .75rem; line-height: 1.5; margin: 8px 2px 0; }
+.osm-attribution { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 7px 2px 0; color: var(--muted); font-size: .7rem; }
+.osm-attribution a { color: inherit; text-underline-offset: 2px; }
 .result-list, .simple-list { display: grid; gap: 9px; margin-top: 12px; }
 .result-card, .simple-row { background: var(--surface); border: 1px solid var(--line); border-radius: 15px; padding: 13px; min-width: 0; }
 .result-card__top, .simple-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
@@ -233,6 +235,17 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .form-grid.two { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .form-grid > *, .form-field { min-width: 0; max-width: 100%; }
 .form-field label { display: block; color: var(--muted); font-size: .75rem; font-weight: 750; margin-bottom: 6px; }
+.plan-location-field { min-width: 0; }
+.location-status { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--muted); font-size: .76rem; line-height: 1.45; }
+.location-status.is-ready { border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); color: var(--text); }
+.location-status svg { width: 17px; height: 17px; margin-top: 1px; flex: 0 0 auto; color: var(--accent); }
+.location-status span { min-width: 0; overflow-wrap: anywhere; }
+.location-find-btn { width: 100%; margin-top: 8px; }
+.location-picker { display: grid; gap: 7px; margin-top: 8px; min-width: 0; }
+.location-option { min-height: 48px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.location-option strong, .location-option span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.location-option span { margin-top: 3px; color: var(--muted); font-size: .7rem; }
+.location-option:focus-visible, .location-option:hover { border-color: var(--accent); outline: none; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); outline: none; font-size: 16px; }
 .native-date-control { display: block; position: relative; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; height: 46px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .native-date-control:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }

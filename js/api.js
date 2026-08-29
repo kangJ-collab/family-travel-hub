@@ -39,7 +39,13 @@ export const api = {
   invite: (role = 'EDITOR') => request('/api/invites/create', { method: 'POST', body: JSON.stringify({ role }) }, true),
   setRole: (memberId, role) => request(`/api/members/${encodeURIComponent(memberId)}`, { method: 'PATCH', body: JSON.stringify({ role }) }, true),
   setMemberName: (memberId, name) => request(`/api/members/${encodeURIComponent(memberId)}`, { method: 'PATCH', body: JSON.stringify({ name }) }, true),
-  searchPlaces: (query) => request(`/api/places/search?q=${encodeURIComponent(query)}`, {}, true),
+  searchPlaces: (query, { lat = '', lng = '', country = '' } = {}) => {
+    const params = new URLSearchParams({ q: query });
+    if (lat !== '' && Number.isFinite(Number(lat))) params.set('lat', String(lat));
+    if (lng !== '' && Number.isFinite(Number(lng))) params.set('lng', String(lng));
+    if (country) params.set('country', country);
+    return request(`/api/places/search?${params}`, {}, true);
+  },
   route: (origin, destination, mode) => request('/api/routes', { method: 'POST', body: JSON.stringify({ origin, destination, mode }) }, true),
   optimize: (payload) => request('/api/routes/optimize', { method: 'POST', body: JSON.stringify(payload) }, true),
   exchange: () => request('/api/exchange', {}, true),

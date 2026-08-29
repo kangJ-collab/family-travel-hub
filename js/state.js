@@ -5,6 +5,21 @@ const uid = (prefix = 'id') => `${prefix}_${crypto.randomUUID ? crypto.randomUUI
 const localDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 const DEFAULT_TRIP_TIME_ZONE = 'Asia/Ho_Chi_Minh';
 
+function normalizeLocation(record) {
+  if (!record || typeof record !== 'object') return record;
+  const hasLat = record.lat !== null && record.lat !== undefined && record.lat !== '';
+  const hasLng = record.lng !== null && record.lng !== undefined && record.lng !== '';
+  const lat = Number(record.lat), lng = Number(record.lng);
+  if (hasLat && hasLng && Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180) {
+    record.lat = lat;
+    record.lng = lng;
+    record.locationResolution ||= 'resolved';
+  } else if (record.placeId) {
+    record.locationResolution ||= 'legacy-google';
+  }
+  return record;
+}
+
 export function defaultState() {
   const start = new Date();
   start.setDate(start.getDate() + 14);
@@ -61,6 +76,8 @@ export function normalizeState(state) {
   state.settings ||= { theme: 'warm-ivory', accent: 'sand', activeDayId: null, moneyDisplay: 'compact' };
   state.settings.moneyDisplay ||= 'compact';
   if (!['compact','detail'].includes(state.settings.moneyDisplay)) state.settings.moneyDisplay = 'compact';
+  state.favorites.forEach(normalizeLocation);
+  state.days.forEach(day => (day.items || []).forEach(normalizeLocation));
   const expectedDays = buildDays(state.trip.startDate, state.trip.endDate);
   if (state.days.length === expectedDays.length && state.days[0]?.date !== expectedDays[0]?.date) {
     state.days = expectedDays.map((day, index) => ({ ...state.days[index], date: day.date }));

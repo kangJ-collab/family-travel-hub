@@ -1,6 +1,6 @@
 name = "family-travel-hub-api"
 main = "src/index.js"
-compatibility_date = "2026-08-01"
+compatibility_date = "2026-08-29"
 
 [vars]
 # GitHub Pages 주소. 여러 개면 쉼표로 구분합니다.
@@ -14,13 +14,20 @@ database_name = "family-travel-hub"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [[ratelimits]]
-name = "GOOGLE_API_RATE_LIMITER"
+name = "PUBLIC_API_RATE_LIMITER"
 namespace_id = "26081701"
 
   [ratelimits.simple]
-  limit = 60
+  limit = 30
   period = 60
 
+[[durable_objects.bindings]]
+name = "PUBLIC_API_GATE"
+class_name = "PublicApiGate"
+
+[exports.PublicApiGate]
+type = "durable-object"
+storage = "sqlite"
+
 # 비밀값은 여기에 적지 않습니다.
-# wrangler secret put GOOGLE_MAPS_API_KEY
 # wrangler secret put OWNER_BOOTSTRAP_KEY
