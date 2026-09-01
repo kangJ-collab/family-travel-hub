@@ -258,7 +258,7 @@ function renderSaved() {
   const el = $('#favoritesList');
   el.innerHTML = state.favorites.length ? state.favorites.map(f => `
     <article class="result-card" data-fav-id="${f.id}">
-      <div class="result-card__top"><div><h4>${esc(f.name)}</h4><p>${esc(hasCoordinates(f)?(f.address||f.category||'저장한 장소'):'위치 재선택 필요')}</p></div>${icon(categoryIcon(f.category))}</div>
+      <div class="result-card__top"><div><h4>${esc(f.name)}</h4><p>${esc(hasCoordinates(f)?(f.address||f.category||'저장한 장소'):'OSM 위치 없음 · 이름으로 지도 검색 가능')}</p></div>${icon(categoryIcon(f.category))}</div>
       <div class="card-actions">
         <button class="secondary-btn" data-action="add-plan">${icon('calendar-plus')}일정에 추가</button>
         <button class="secondary-btn" data-action="map">${icon('map')}지도</button>
@@ -455,7 +455,7 @@ function openPlanEditor(item = null, prefill = {}) {
       findButton.onclick=async()=>{
         const query=String(form.elements.name.value||'').trim();if(query.length<2){results.innerHTML='<p class="form-error">장소 또는 일정명을 두 글자 이상 입력하세요.</p>';return;}
         findButton.disabled=true;results.innerHTML='<p class="helper-text">OpenStreetMap에서 위치를 찾는 중입니다.</p>';
-        try { const {places=[]}=await api.searchPlaces(query,placeSearchBias());results.dataset.places=JSON.stringify(places);results.innerHTML=places.length?places.map(place=>`<button type="button" class="location-option" data-location-key="${esc(place.id)}"><strong>${esc(place.name)}</strong><span>${esc(place.address||'')}</span></button>`).join(''):'<p class="form-error">검색 결과가 없습니다. 이름을 더 정확히 입력해보세요.</p>'; }
+        try { const {places=[],interpretedQuery=''}=await api.searchPlaces(query,placeSearchBias());results.dataset.places=JSON.stringify(places);results.innerHTML=places.length?`${interpretedQuery?`<p class="helper-text">${esc(interpretedQuery)}로 해석해 검색했습니다.</p>`:''}${places.map(place=>`<button type="button" class="location-option" data-location-key="${esc(place.id)}"><strong>${esc(place.name)}</strong><span>${esc(place.address||'')}</span></button>`).join('')}`:'<p class="form-error">OSM에 등록되지 않은 장소입니다. 위치 없이 일정명만 저장할 수 있습니다.</p>'; }
         catch(error){results.innerHTML=`<p class="form-error">${esc(error.message)}</p>`;}
         finally{findButton.disabled=false;}
       };
@@ -524,9 +524,10 @@ function openSettings() {
 async function searchPlaces(query) {
   const resultEl = $('#placeSearchResults'); resultEl.innerHTML = '<div class="empty-state">검색 중...</div>';
   try {
-    const { places = [] } = await api.searchPlaces(query,placeSearchBias());
-    resultEl.innerHTML = places.length ? places.map(p => `<article class="result-card" data-place-key="${esc(p.id)}"><div class="result-card__top"><div><h4>${esc(p.name)}</h4><p>${esc(p.address || '')}</p></div>${icon('map-pin')}</div><div class="card-actions"><button class="secondary-btn" data-action="save">${icon('bookmark-plus')}저장</button><button class="primary-btn" data-action="plan">${icon('calendar-plus')}일정에 추가</button></div></article>`).join('') : '<div class="empty-state">검색 결과가 없습니다. 장소의 현지명이나 영문명을 함께 입력해보세요.</div>';
-    resultEl.dataset.results = JSON.stringify(places); createIcons();
+    const { places = [], interpretedQuery = '', suggestedCategory = '' } = await api.searchPlaces(query,placeSearchBias());
+    const interpretation=interpretedQuery?`<p class="search-feedback">${icon('languages')}<span><strong>${esc(query)}</strong>을(를) <strong>${esc(interpretedQuery)}</strong>로 해석해 검색했습니다.</span></p>`:'';
+    resultEl.innerHTML = places.length ? `${interpretation}${places.map(p => `<article class="result-card" data-place-key="${esc(p.id)}"><div class="result-card__top"><div><h4>${esc(p.name)}</h4><p>${esc(p.address || '')}</p></div>${icon('map-pin')}</div><div class="card-actions"><button class="secondary-btn" data-action="save">${icon('bookmark-plus')}저장</button><button class="primary-btn" data-action="plan">${icon('calendar-plus')}일정에 추가</button></div></article>`).join('')}` : `<div class="search-fallback">${interpretation}<div class="empty-state"><strong>OSM에서 장소를 찾지 못했습니다.</strong><span>일부 한국어 업종·장소명은 자동 변환하지만, OSM에 등록되지 않은 장소도 있습니다. 이름은 그대로 저장하거나 일정에 추가할 수 있습니다.</span></div><div class="search-fallback__actions"><button class="secondary-btn" type="button" data-search-action="save">${icon('bookmark-plus')}검색어 저장</button><button class="primary-btn" type="button" data-search-action="plan">${icon('calendar-plus')}일정 추가</button><button class="secondary-btn search-fallback__map" type="button" data-search-action="map">${icon('map')}Google Maps에서 검색</button></div></div>`;
+    resultEl.dataset.results = JSON.stringify(places); resultEl.dataset.query=query; resultEl.dataset.suggestedCategory=suggestedCategory; createIcons();
   } catch(err) { resultEl.innerHTML = `<div class="empty-state">${esc(err.message)}<br>가족 인증 연결과 인터넷 상태를 확인하세요.</div>`; }
 }
 
@@ -670,7 +671,21 @@ function bindEvents() {
   });
   $('#refreshRoutesBtn').onclick=refreshRoutes; $('#recommendRouteBtn').onclick=recommendRoute;
   $('#placeSearchForm').onsubmit=e=>{e.preventDefault();const q=$('#placeSearchInput').value.trim();if(q)searchPlaces(q);};
-  $('#placeSearchResults').addEventListener('click',e=>{const card=e.target.closest('[data-place-key]'),btn=e.target.closest('[data-action]');if(!card||!btn)return;const places=JSON.parse($('#placeSearchResults').dataset.results||'[]'),p=places.find(x=>x.id===card.dataset.placeKey);if(!p)return;if(btn.dataset.action==='save'){if(!state.favorites.some(f=>sameLocation(f,p)))state.favorites.push({id:uid('fav'),name:p.name,address:p.address,category:'기타',...locationFields(p)});scheduleSave();renderSaved();createIcons();toast('가고 싶은 곳에 저장했습니다.');}else openPlanEditor(null,{name:p.name,address:p.address,...locationFields(p)});});
+  $('#placeSearchResults').addEventListener('click',e=>{
+    const resultEl=$('#placeSearchResults'),fallback=e.target.closest('[data-search-action]');
+    if(fallback){
+      const query=String(resultEl.dataset.query||'').trim(),category=resultEl.dataset.suggestedCategory||'기타';if(!query)return;
+      if(fallback.dataset.searchAction==='save'){
+        const duplicate=state.favorites.some(item=>String(item.name||'').trim().toLocaleLowerCase()===query.toLocaleLowerCase());
+        if(duplicate)return toast('이미 저장한 장소입니다.');
+        state.favorites.push({id:uid('fav'),name:query,address:'',category,locationSource:'manual-search',locationResolution:'missing'});scheduleSave();renderSaved();createIcons();toast('검색어를 위치 없이 저장했습니다.');
+      }
+      if(fallback.dataset.searchAction==='plan')openPlanEditor(null,{name:query,category});
+      if(fallback.dataset.searchAction==='map')openPlaceMap({name:query});
+      return;
+    }
+    const card=e.target.closest('[data-place-key]'),btn=e.target.closest('[data-action]');if(!card||!btn)return;const places=JSON.parse(resultEl.dataset.results||'[]'),p=places.find(x=>x.id===card.dataset.placeKey);if(!p)return;if(btn.dataset.action==='save'){if(!state.favorites.some(f=>sameLocation(f,p)))state.favorites.push({id:uid('fav'),name:p.name,address:p.address,category:'기타',...locationFields(p)});scheduleSave();renderSaved();createIcons();toast('가고 싶은 곳에 저장했습니다.');}else openPlanEditor(null,{name:p.name,address:p.address,...locationFields(p)});
+  });
   $('#favoritesList').addEventListener('click',e=>{const c=e.target.closest('[data-fav-id]'),b=e.target.closest('[data-action]');if(!c||!b)return;const f=state.favorites.find(x=>x.id===c.dataset.favId);if(b.dataset.action==='remove'){state.favorites=state.favorites.filter(x=>x.id!==f.id);scheduleSave();renderSaved();createIcons();}if(b.dataset.action==='add-plan')openPlanEditor(null,{name:f.name,address:f.address,category:f.category,placeId:f.placeId,...locationFields(f)});if(b.dataset.action==='map')openPlaceMap(f);});
   $('#vndInput').addEventListener('input',e=>{const pos=e.target.selectionStart;e.target.value=formatNumberInput(e.target.value);updateCurrency();});
   $('#quickAmounts').addEventListener('click',e=>{const b=e.target.closest('[data-vnd]');if(!b)return;$('#vndInput').value=Number(b.dataset.vnd).toLocaleString();updateCurrency();});
@@ -719,11 +734,12 @@ function bindEvents() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });
 }
 function openPlaceMap(place) {
+  const nameQuery=[place.name,!hasCoordinates(place)?state.trip.city:'',!hasCoordinates(place)?state.trip.country:''].filter(Boolean).join(', ');
   const url=hasCoordinates(place)
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${place.lat},${place.lng}`)}`
     : place.placeId
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${encodeURIComponent(place.placeId)}`
-      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}`;
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(nameQuery)}`;
   confirmExternal('Google Maps',url,'장소 확인을 위해 Google Maps 앱 또는 웹사이트로 이동합니다.');
 }
 function openCityMap() { const query=[state.trip.city,state.trip.country].filter(Boolean).join(', ')||'Nha Trang, Vietnam'; confirmExternal('Google Maps',`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,'등록된 다음 일정이 없어 여행지 지도를 엽니다.'); }

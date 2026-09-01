@@ -5,6 +5,18 @@ const nowIso = () => new Date().toISOString();
 const PUBLIC_APP_ID = 'FamilyTravelHub/2.0 (+https://github.com/kangJ-collab/family-travel-hub)';
 const OSM_ATTRIBUTION = { label:'© OpenStreetMap contributors', url:'https://www.openstreetmap.org/copyright' };
 const OSRM_ATTRIBUTION = { label:'Routing by OSRM', url:'https://project-osrm.org/' };
+const PLACE_NAME_ALIASES = [
+  ['나트랑센터','Nha Trang Center'],['포나가르','Po Nagar'],['담시장','Dam Market'],['혼총','Hon Chong'],
+  ['안토이','Ăn Thôi'],['롯데마트','Lotte Mart'],['빈원더스','VinWonders'],['빈펄','Vinpearl'],
+  ['나트랑','Nha Trang'],['냐짱','Nha Trang'],['다낭','Da Nang'],['호이안','Hoi An']
+];
+const PLACE_CATEGORY_ALIASES = [
+  [['야시장','시장'],'market','시장'],[['맛집','음식점','레스토랑','식당'],'restaurant','식당'],
+  [['카페','커피'],'cafe','카페'],[['마사지','스파'],'spa','마사지'],[['리조트'],'resort','호텔'],
+  [['호텔','숙소'],'hotel','호텔'],[['쇼핑몰','쇼핑'],'mall','쇼핑'],[['마트'],'supermarket','쇼핑'],
+  [['관광지','명소'],'attraction','관광'],[['사원'],'temple','관광'],[['약국'],'pharmacy','기타'],
+  [['병원'],'hospital','기타'],[['공항'],'airport','공항']
+];
 const rand = (bytes=24) => { const a=new Uint8Array(bytes); crypto.getRandomValues(a); return btoa(String.fromCharCode(...a)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
 const inviteCode = () => { const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789', bytes=new Uint8Array(8); crypto.getRandomValues(bytes); const raw=[...bytes].map(value=>chars[value&31]).join(''); return `${raw.slice(0,4)}-${raw.slice(4)}`; };
 const normalizeInviteCode = value => String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -74,11 +86,25 @@ function osmPlace(item) {
   const names=item.namedetails||{}, name=String(item.name||names['name:ko']||names.name||names['name:vi']||item.display_name||'').split(',')[0].trim();
   return {id:osmType&&osmId?`${osmType}:${osmId}`:`place:${fallbackId}`,osmType,osmId,name,address:String(item.display_name||''),lat,lng,kind:String(item.type||''),category:String(item.category||'')};
 }
+function interpretPlaceQuery(value) {
+  const original=String(value||'').normalize('NFC').trim(); let query=original, aliasApplied=false, category='';
+  for(const [source,replacement] of [...PLACE_NAME_ALIASES].sort((a,b)=>b[0].length-a[0].length)) {
+    if(!query.includes(source))continue; query=query.replaceAll(source,replacement); aliasApplied=true;
+  }
+  for(const [sources,replacement,label] of PLACE_CATEGORY_ALIASES) {
+    for(const source of [...sources].sort((a,b)=>b.length-a.length)) {
+      if(!query.includes(source))continue; query=query.replaceAll(source,replacement); category=category||label; aliasApplied=true;
+    }
+  }
+  if(category)query=query.replace(/^(?:Nha Trang|Da Nang|Hoi An)\s+(?=(?:restaurant|cafe|spa|resort|hotel|mall|supermarket|market|attraction|temple|pharmacy|hospital|airport)$)/i,'');
+  query=query.replace(/\s+/g,' ').replace(/\s*,\s*/g,', ').trim();
+  return {query,interpretedQuery:aliasApplied&&query!==original?query:'',queryMode:category?'category':aliasApplied?'name-alias':'direct',category};
+}
 function osrmBase(mode){return mode==='WALK'?'https://routing.openstreetmap.de/routed-foot':'https://routing.openstreetmap.de/routed-car';}
 
 async function handle(req, env, ctx) {
   const url=new URL(req.url), p=url.pathname;
-  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'2.0.0',providers:{places:'Nominatim',routes:'OSRM',weather:'Open-Meteo',exchange:'open.er-api'},googleApiKeyRequired:false});
+  if(req.method==='GET'&&p==='/api/health') return json({ok:true,version:'2.1.0',providers:{places:'Nominatim',routes:'OSRM',weather:'Open-Meteo',exchange:'open.er-api'},googleApiKeyRequired:false});
 
   if(req.method==='POST'&&p==='/api/trips/create') {
     bodyLimit(req); requireOwnerBootstrap(req,env); const input=await req.json(); const tripId=crypto.randomUUID(), memberId=crypto.randomUUID(), token=rand(32), tokenHash=await sha256(token); const state=input.state||{}; state.trip={...(state.trip||{}),id:tripId}; state.revision=1;
@@ -141,15 +167,16 @@ async function handle(req, env, ctx) {
 
   if(req.method==='GET'&&p==='/api/places/search') {
     const me=await auth(req,env); await limitPublicApi(me,env); const q=(url.searchParams.get('q')||'').trim().slice(0,120); if(!q)return json({places:[],source:'Nominatim',attribution:OSM_ATTRIBUTION}); if(q.length<2)throw Object.assign(new Error('장소 검색어를 두 글자 이상 입력하세요.'),{status:400});
+    const interpreted=interpretPlaceQuery(q);
     const centerLat=Number(url.searchParams.get('lat')),centerLng=Number(url.searchParams.get('lng')),lat=Number.isFinite(centerLat)?centerLat:12.2388,lng=Number.isFinite(centerLng)?centerLng:109.1967;
-    coordinate({lat,lng}); const params=new URLSearchParams({format:'jsonv2',q,limit:'8',addressdetails:'1',namedetails:'1',dedupe:'1','accept-language':'ko,en,vi',viewbox:`${lng-0.55},${lat+0.45},${lng+0.55},${lat-0.45}`,bounded:'1'});
+    coordinate({lat,lng}); const params=new URLSearchParams({format:'jsonv2',q:interpreted.query,limit:'8',addressdetails:'1',namedetails:'1',dedupe:'1','accept-language':'ko,en,vi',viewbox:`${lng-0.55},${lat+0.45},${lng+0.55},${lat-0.45}`,bounded:'1'});
     const country=String(url.searchParams.get('country')||'Vietnam').toLowerCase(); if(country.includes('vietnam')||country.includes('viet nam')||country.includes('베트남'))params.set('countrycodes','vn');
     const upstreamUrl=`https://nominatim.openstreetmap.org/search?${params}`;
     const result=await cachedPublicJson('nominatim-search',upstreamUrl,30*24*60*60,ctx,async()=>{
       const data=await readPublicJson(upstreamUrl,env,'nominatim','OpenStreetMap 장소 검색에 실패했습니다.');
       return {places:(Array.isArray(data)?data:[]).map(osmPlace).filter(Boolean)};
     });
-    return json({...result.data,source:'Nominatim',cacheHit:result.cacheHit,attribution:OSM_ATTRIBUTION},200,{'Cache-Control':'no-store'});
+    return json({...result.data,query:q,interpretedQuery:interpreted.interpretedQuery,queryMode:interpreted.queryMode,suggestedCategory:interpreted.category,source:'Nominatim',cacheHit:result.cacheHit,attribution:OSM_ATTRIBUTION},200,{'Cache-Control':'no-store'});
   }
 
   if(req.method==='POST'&&p==='/api/routes') {
